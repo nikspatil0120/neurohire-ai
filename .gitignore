@@ -22,3 +22,16 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# AI Documentation (keep local only)
+AI_*.md
+*_GUIDE.md
+*_CHECKLIST.md
+*_SUMMARY.md
+*_OUTLINE.md
+*_ANALYSIS.md
+*_NOTES.md
+*_STRUCTURE.md
+QUICK_REFERENCE.md
+QUICKSTART.md
+DATABASE_SCHEMA.md
