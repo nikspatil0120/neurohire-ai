@@ -2,6 +2,7 @@ import { ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { LucideIcon } from "lucide-react";
+import UserProfile from "@/components/UserProfile";
 
 interface NavItem {
   label: string;
@@ -65,8 +66,9 @@ const DashboardLayout = ({ children, navItems, title }: DashboardLayoutProps) =>
 
       {/* Main content */}
       <main className="flex-1 overflow-auto">
-        <header className="border-b border-border/30 px-8 py-4">
+        <header className="border-b border-border/30 px-8 py-4 flex items-center justify-between">
           <h1 className="text-xl font-display tracking-wider text-foreground">{title}</h1>
+          <UserProfile />
         </header>
         <div className="p-8">{children}</div>
       </main>

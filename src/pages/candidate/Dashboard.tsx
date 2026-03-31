@@ -2,6 +2,7 @@ import DashboardLayout from "@/components/layout/DashboardLayout";
 import GlassCard from "@/components/GlassCard";
 import { LayoutDashboard, Target, Building2, FileText, User, LogOut, Brain, TrendingUp, Calendar, Zap } from "lucide-react";
 import { Link } from "react-router-dom";
+import { useProfile } from "@/contexts/ProfileContext";
 
 const navItems = [
   { label: "Dashboard", href: "/candidate/dashboard", icon: LayoutDashboard },
@@ -13,6 +14,8 @@ const navItems = [
 ];
 
 const CandidateDashboard = () => {
+  const { profileCompletion } = useProfile();
+
   return (
     <DashboardLayout navItems={navItems} title="DASHBOARD">
       <div className="space-y-6">
@@ -22,14 +25,17 @@ const CandidateDashboard = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted-foreground uppercase tracking-wider">Profile Completion</p>
-                <p className="text-3xl font-display mt-1 text-foreground">72%</p>
+                <p className="text-3xl font-display mt-1 text-foreground">{profileCompletion}%</p>
               </div>
               <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
                 <User className="w-5 h-5 text-primary" />
               </div>
             </div>
             <div className="mt-4 h-2 rounded-full bg-muted/50">
-              <div className="h-full w-[72%] rounded-full bg-gradient-to-r from-primary to-neon-cyan" />
+              <div 
+                className="h-full rounded-full bg-gradient-to-r from-primary to-neon-cyan transition-all duration-500 ease-out" 
+                style={{ width: `${profileCompletion}%` }}
+              />
             </div>
           </GlassCard>
 
@@ -68,9 +74,9 @@ const CandidateDashboard = () => {
               <div>
                 <h3 className="text-foreground font-semibold mb-1">AI Recommendation</h3>
                 <p className="text-sm text-muted-foreground">
-                  Based on your recent practice sessions, focus on improving your system design explanations.
+                  Based on your profile analysis, focus on improving your system design explanations.
                   Your technical skills are strong, but articulation in behavioral questions needs work.
-                  Try 2 more practice rounds this week.
+                  Prepare well for your upcoming interviews.
                 </p>
               </div>
             </div>

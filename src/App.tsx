@@ -4,8 +4,13 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { ProfileProvider } from "@/contexts/ProfileContext";
+import { GoogleAuthProvider } from "@/components/GoogleOAuthProvider";
+import DatabaseStatus from "@/components/DatabaseStatus";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
+import LoginSimple from "./pages/LoginSimple";
+import TestPage from "./pages/TestPage";
 import NotFound from "./pages/NotFound";
 
 // Candidate
@@ -33,41 +38,45 @@ const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <AuthProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="/login" element={<Login />} />
+    <GoogleAuthProvider>
+      <AuthProvider>
+        <ProfileProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
+              <Routes>
+                <Route path="/" element={<Index />} />
+                <Route path="/login" element={<Login />} />
 
-            {/* Candidate */}
-            <Route path="/candidate/dashboard" element={<CandidateDashboard />} />
-            <Route path="/candidate/profile" element={<CandidateProfile />} />
-            <Route path="/candidate/practice" element={<PracticeMode />} />
-            <Route path="/candidate/aptitude-test" element={<AptitudeTest />} />
-            <Route path="/candidate/technical-coding" element={<TechnicalCoding />} />
-            <Route path="/candidate/interview-room" element={<InterviewRoom />} />
-            <Route path="/candidate/interviews" element={<Interviews />} />
-            <Route path="/candidate/reports" element={<Report />} />
+                {/* Candidate */}
+                <Route path="/candidate/dashboard" element={<CandidateDashboard />} />
+                <Route path="/candidate/profile" element={<CandidateProfile />} />
+                <Route path="/candidate/practice" element={<PracticeMode />} />
+                <Route path="/candidate/aptitude-test" element={<AptitudeTest />} />
+                <Route path="/candidate/technical-coding" element={<TechnicalCoding />} />
+                <Route path="/candidate/interview-room" element={<InterviewRoom />} />
+                <Route path="/candidate/interviews" element={<Interviews />} />
+                <Route path="/candidate/reports" element={<Report />} />
 
-            {/* Recruiter */}
-            <Route path="/recruiter/dashboard" element={<RecruiterDashboard />} />
-            <Route path="/recruiter/create-job" element={<CreateJob />} />
-            <Route path="/recruiter/questions" element={<QuestionDB />} />
-            <Route path="/recruiter/rankings" element={<Rankings />} />
-            <Route path="/recruiter/messages" element={<Messaging />} />
+                {/* Recruiter */}
+                <Route path="/recruiter/dashboard" element={<RecruiterDashboard />} />
+                <Route path="/recruiter/create-job" element={<CreateJob />} />
+                <Route path="/recruiter/questions" element={<QuestionDB />} />
+                <Route path="/recruiter/rankings" element={<Rankings />} />
+                <Route path="/recruiter/messages" element={<Messaging />} />
 
-            {/* Admin */}
-            <Route path="/admin/dashboard" element={<AdminDashboard />} />
-            <Route path="/admin/monitoring" element={<SystemMonitoring />} />
+                {/* Admin */}
+                <Route path="/admin/dashboard" element={<AdminDashboard />} />
+                <Route path="/admin/monitoring" element={<SystemMonitoring />} />
 
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
-    </AuthProvider>
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </BrowserRouter>
+          </TooltipProvider>
+        </ProfileProvider>
+      </AuthProvider>
+    </GoogleAuthProvider>
   </QueryClientProvider>
 );
 

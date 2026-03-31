@@ -1,12 +1,27 @@
 // API configuration and helper functions
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000/api";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
 
 class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(public status: number, message: string, public data?: any) {
     super(message);
     this.name = "ApiError";
   }
 }
+
+// Get auth token from localStorage
+const getAuthToken = () => {
+  return localStorage.getItem('authToken');
+};
+
+// Set auth token in localStorage
+const setAuthToken = (token: string) => {
+  localStorage.setItem('authToken', token);
+};
+
+// Remove auth token from localStorage
+const removeAuthToken = () => {
+  localStorage.removeItem('authToken');
+};
 
 async function fetchApi<T>(
   endpoint: string,
@@ -14,27 +29,91 @@ async function fetchApi<T>(
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
   
+  // Get auth token
+  const token = getAuthToken();
+  
+  const headers: HeadersInit = {
+    "Content-Type": "application/json",
+    ...options?.headers,
+  };
+
+  // Add auth header if token exists
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  
   const response = await fetch(url, {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options?.headers,
-    },
+    headers,
   });
 
+  const data = await response.json();
+
   if (!response.ok) {
-    throw new ApiError(response.status, `API Error: ${response.statusText}`);
+    throw new ApiError(response.status, data.message || `API Error: ${response.statusText}`, data);
   }
 
-  return response.json();
+  return data;
 }
 
 export const api = {
-  // Auth
-  login: (email: string, password: string, role: string) =>
+  // Auth endpoints
+  register: (userData: { name: string; email: string; password: string; role: string }) =>
+    fetchApi("/auth/register", {
+      method: "POST",
+      body: JSON.stringify(userData),
+    }),
+
+  login: (credentials: { email: string; password: string }) =>
     fetchApi("/auth/login", {
       method: "POST",
-      body: JSON.stringify({ email, password, role }),
+      body: JSON.stringify(credentials),
+    }),
+
+  googleAuth: (googleData: { email: string; name: string; avatar?: string; googleId: string; role: string }) =>
+    fetchApi("/auth/google", {
+      method: "POST",
+      body: JSON.stringify(googleData),
+    }),
+
+  getCurrentUser: () => fetchApi("/auth/me"),
+
+  updateProfile: (profileData: any) =>
+    fetchApi("/auth/profile", {
+      method: "PUT",
+      body: JSON.stringify(profileData),
+    }),
+
+  uploadResume: (formData: FormData) => {
+    const token = getAuthToken();
+    return fetch(`${API_BASE_URL}/auth/upload-resume`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        // Don't set Content-Type for FormData, let browser set it
+      },
+      body: formData,
+    }).then(async (response) => {
+      const data = await response.json();
+      if (!response.ok) {
+        throw new ApiError(response.status, data.message || `Upload Error: ${response.statusText}`, data);
+      }
+      return data;
+    });
+  },
+
+  downloadResume: (filename: string) => {
+    const token = getAuthToken();
+    return fetch(`${API_BASE_URL}/auth/download-resume/${filename}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  },
+
+  logout: () =>
+    fetchApi("/auth/logout", {
+      method: "POST",
     }),
 
   // Candidates
@@ -80,4 +159,4 @@ export const api = {
     fetchApi(`/reports?candidateId=${candidateId}`),
 };
 
-export { ApiError };
+export { ApiError, getAuthToken, setAuthToken, removeAuthToken };

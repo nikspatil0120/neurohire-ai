@@ -3,6 +3,8 @@ import ParticleBackground from "@/components/ParticleBackground";
 import HologramAvatar from "@/components/HologramAvatar";
 import GlassCard from "@/components/GlassCard";
 import WaveformAnimation from "@/components/WaveformAnimation";
+import UserProfile from "@/components/UserProfile";
+import { useAuth } from "@/contexts/AuthContext";
 import { Brain, Shield, Zap, Eye, BarChart3, Users, ArrowRight, Mic } from "lucide-react";
 
 const features = [
@@ -21,6 +23,8 @@ const steps = [
 ];
 
 const Index = () => {
+  const { isAuthenticated } = useAuth();
+
   return (
     <div className="min-h-screen bg-background text-foreground overflow-hidden">
       <ParticleBackground />
@@ -34,15 +38,16 @@ const Index = () => {
           <span className="font-display text-lg tracking-widest neon-glow">NEUROHIRE</span>
         </div>
         <div className="flex items-center gap-4">
-          <Link to="/login" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-            Login
-          </Link>
-          <Link
-            to="/login"
-            className="px-5 py-2 rounded-lg bg-primary/10 border border-primary/30 text-primary text-sm hover:bg-primary/20 transition-all duration-300 hover:shadow-[0_0_20px_hsl(185_100%_50%/0.2)]"
-          >
-            Get Started
-          </Link>
+          {isAuthenticated ? (
+            <UserProfile />
+          ) : (
+            <Link
+              to="/login"
+              className="px-4 py-2 rounded-lg bg-primary/10 border border-primary/30 text-primary text-sm hover:bg-primary/20 transition-all"
+            >
+              Sign In
+            </Link>
+          )}
         </div>
       </nav>
 
@@ -60,18 +65,12 @@ const Index = () => {
           and predictive analytics — all in one cinematic experience.
         </p>
 
-        <div className="flex flex-col sm:flex-row gap-4 animate-fade-in-up" style={{ animationDelay: "0.6s", opacity: 0 }}>
+        <div className="animate-fade-in-up" style={{ animationDelay: "0.6s", opacity: 0 }}>
           <Link
-            to="/candidate/dashboard"
+            to="/login"
             className="px-8 py-3 rounded-lg bg-gradient-to-r from-primary to-neon-cyan text-primary-foreground font-semibold text-sm tracking-wide hover:shadow-[0_0_30px_hsl(185_100%_50%/0.4)] transition-all duration-300 flex items-center gap-2"
           >
-            Start Interview <ArrowRight className="w-4 h-4" />
-          </Link>
-          <Link
-            to="/recruiter/dashboard"
-            className="px-8 py-3 rounded-lg border border-secondary/40 text-secondary hover:bg-secondary/10 font-semibold text-sm tracking-wide transition-all duration-300"
-          >
-            Recruiter Portal
+            Get Started <ArrowRight className="w-4 h-4" />
           </Link>
         </div>
 
