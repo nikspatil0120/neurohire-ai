@@ -17,6 +17,7 @@ import NotFound from "./pages/NotFound";
 import CandidateDashboard from "./pages/candidate/Dashboard";
 import CandidateProfile from "./pages/candidate/Profile";
 import PracticeMode from "./pages/candidate/PracticeMode";
+import ProblemList from "./pages/candidate/ProblemList";
 import AptitudeTest from "./pages/candidate/AptitudeTest";
 import TechnicalCoding from "./pages/candidate/TechnicalCoding";
 import InterviewRoom from "./pages/candidate/InterviewRoom";
@@ -33,6 +34,8 @@ import Messaging from "./pages/recruiter/Messaging";
 // Admin
 import AdminDashboard from "./pages/admin/Dashboard";
 import SystemMonitoring from "./pages/admin/SystemMonitoring";
+import DSAProblems from "./pages/admin/DSAProblems";
+import AptitudeQuestions from "./pages/admin/AptitudeQuestions";
 
 const queryClient = new QueryClient();
 
@@ -53,6 +56,7 @@ const App = () => (
                 <Route path="/candidate/dashboard" element={<CandidateDashboard />} />
                 <Route path="/candidate/profile" element={<CandidateProfile />} />
                 <Route path="/candidate/practice" element={<PracticeMode />} />
+                <Route path="/candidate/problem-list" element={<ProblemList />} />
                 <Route path="/candidate/aptitude-test" element={<AptitudeTest />} />
                 <Route path="/candidate/technical-coding" element={<TechnicalCoding />} />
                 <Route path="/candidate/interview-room" element={<InterviewRoom />} />
@@ -69,6 +73,8 @@ const App = () => (
                 {/* Admin */}
                 <Route path="/admin/dashboard" element={<AdminDashboard />} />
                 <Route path="/admin/monitoring" element={<SystemMonitoring />} />
+                <Route path="/admin/dsa-problems" element={<DSAProblems />} />
+                <Route path="/admin/aptitude-questions" element={<AptitudeQuestions />} />
 
                 <Route path="*" element={<NotFound />} />
               </Routes>

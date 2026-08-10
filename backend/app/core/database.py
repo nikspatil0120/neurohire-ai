@@ -2,7 +2,7 @@ from sqlalchemy import create_engine, MetaData
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from pymongo import AsyncMongoClient
+from motor.motor_asyncio import AsyncIOMotorClient
 import redis.asyncio as redis
 from app.config import settings
 import logging
@@ -32,6 +32,11 @@ Base = declarative_base()
 # MongoDB setup
 mongo_client = None
 mongo_db = None
+users_collection = None
+interviews_collection = None
+jobs_collection = None
+questions_collection = None
+problems_collection = None
 
 # Redis setup
 redis_client = None
@@ -39,12 +44,21 @@ redis_client = None
 async def init_db():
     """Initialize database connections"""
     global mongo_client, mongo_db, redis_client
+    global users_collection, interviews_collection, jobs_collection, questions_collection, problems_collection
     
     try:
         # Initialize MongoDB
         if settings.MONGODB_URL:
-            mongo_client = AsyncMongoClient(settings.MONGODB_URL)
+            mongo_client = AsyncIOMotorClient(settings.MONGODB_URL)
             mongo_db = mongo_client[settings.MONGODB_DB]
+            
+            # Initialize collections
+            users_collection = mongo_db["users"]
+            interviews_collection = mongo_db["interviews"]
+            jobs_collection = mongo_db["jobs"]
+            questions_collection = mongo_db["questions"]
+            problems_collection = mongo_db["problems"]
+            
             logger.info("MongoDB connected successfully")
         
         # Initialize Redis

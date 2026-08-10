@@ -64,21 +64,47 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const login = async (email: string, password: string, role: UserRole) => {
     setIsLoading(true);
     try {
-      const response = await api.login({ email, password });
-      
-      if (response.success && response.data) {
-        const { user: userData, token } = response.data;
-        
-        // Check if role matches
-        if (userData.role !== role) {
-          throw new Error(`This account is registered as a ${userData.role}, not a ${role}`);
+      // Handle admin login with hardcoded credentials
+      if (role === "admin") {
+        if (email === "admin@xyz.com" && password === "admin@123") {
+          const adminUser: User = {
+            id: "admin_001",
+            name: "Admin User",
+            email: "admin@xyz.com",
+            role: "admin",
+            avatar: undefined,
+            isActive: true,
+            lastLogin: new Date().toISOString()
+          };
+          const adminToken = "admin_token_" + Date.now();
+          setAuthToken(adminToken);
+          setUser(adminUser);
+          return;
+        } else {
+          throw new Error("Invalid admin credentials");
         }
-        
-        setAuthToken(token);
-        setUser(userData);
-      } else {
-        throw new Error(response.message || 'Login failed');
       }
+
+      // Mock login for candidates and recruiters (no backend required)
+      // In production, this would call the backend API
+      if (email && password) {
+        const mockUser: User = {
+          id: `${role}_${Date.now()}`,
+          name: email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+          email: email,
+          role: role,
+          avatar: undefined,
+          isActive: true,
+          lastLogin: new Date().toISOString()
+        };
+        const mockToken = `${role}_token_${Date.now()}`;
+        setAuthToken(mockToken);
+        setUser(mockUser);
+        console.log('User logged in (mock):', mockUser);
+        return;
+      }
+
+      throw new Error("Invalid credentials");
     } catch (error: any) {
       console.error('Login error:', error);
       throw new Error(error.message || 'Login failed');
@@ -110,7 +136,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const loginWithGoogle = async (credential: string, role: UserRole) => {
     setIsLoading(true);
     try {
-      // Decode Google JWT token (simplified - in production, verify on backend)
+      // Disable Google login for admin role
+      if (role === "admin") {
+        throw new Error("Google authentication is not available for admin accounts. Please use email/password login.");
+      }
+
+      // Decode Google JWT token to get user info
       const base64Url = credential.split('.')[1];
       const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
       const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
@@ -119,23 +150,25 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       
       const googleUser = JSON.parse(jsonPayload);
       
-      const googleData = {
+      // Create user object from Google data (mock authentication)
+      const mockGoogleUser: User = {
+        id: `google_${googleUser.sub}`,
+        name: googleUser.name || googleUser.email.split('@')[0],
         email: googleUser.email,
-        name: googleUser.name,
+        role: role,
         avatar: googleUser.picture,
-        googleId: googleUser.sub,
-        role
+        isActive: true,
+        lastLogin: new Date().toISOString()
       };
 
-      const response = await api.googleAuth(googleData);
+      // Create mock token
+      const mockToken = `google_token_${Date.now()}_${googleUser.sub}`;
       
-      if (response.success && response.data) {
-        const { user: userData, token } = response.data;
-        setAuthToken(token);
-        setUser(userData);
-      } else {
-        throw new Error(response.message || 'Google authentication failed');
-      }
+      setAuthToken(mockToken);
+      setUser(mockGoogleUser);
+      
+      console.log('Google user logged in:', mockGoogleUser);
+      
     } catch (error: any) {
       console.error('Google login error:', error);
       throw new Error(error.message || 'Google authentication failed');

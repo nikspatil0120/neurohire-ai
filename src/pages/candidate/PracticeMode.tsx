@@ -28,7 +28,7 @@ const modes = [
     desc: "Data structures, algorithms, and system design challenges",
     difficulty: "Hard",
     duration: "60 min",
-    href: "/candidate/technical-coding",
+    href: "/candidate/problem-list",
     color: "secondary" as const,
   },
   {

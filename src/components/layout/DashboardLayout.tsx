@@ -1,22 +1,25 @@
 import { ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { LucideIcon } from "lucide-react";
+import { LucideIcon, CheckCircle } from "lucide-react";
 import UserProfile from "@/components/UserProfile";
 
 interface NavItem {
   label: string;
   href: string;
   icon: LucideIcon;
+  showSolvedCount?: boolean;
 }
 
 interface DashboardLayoutProps {
   children: ReactNode;
   navItems: NavItem[];
   title: string;
+  solvedCount?: number;
+  totalProblems?: number;
 }
 
-const DashboardLayout = ({ children, navItems, title }: DashboardLayoutProps) => {
+const DashboardLayout = ({ children, navItems, title, solvedCount = 0, totalProblems = 0 }: DashboardLayoutProps) => {
   const location = useLocation();
 
   return (
@@ -48,7 +51,13 @@ const DashboardLayout = ({ children, navItems, title }: DashboardLayoutProps) =>
                 )}
               >
                 <Icon className="w-4 h-4" />
-                {item.label}
+                <span className="flex-1">{item.label}</span>
+                {item.showSolvedCount && (solvedCount > 0 || totalProblems > 0) && (
+                  <div className="flex items-center gap-1 text-xs">
+                    <CheckCircle className="w-3 h-3 text-green-500" />
+                    <span className="text-green-400">{solvedCount}/{totalProblems}</span>
+                  </div>
+                )}
               </Link>
             );
           })}

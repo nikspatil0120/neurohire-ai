@@ -6,6 +6,9 @@ import dotenv from 'dotenv';
 import connectDB from './config/database.js';
 import authRoutes from './routes/auth.js';
 import compilerRoutes from './routes/compiler.js';
+import problemsRoutes from './routes/problems.js';
+import userProgressRoutes from './routes/userProgress.js';
+import aptitudeQuestionsRoutes from './routes/aptitudeQuestions.js';
 
 // Load environment variables
 dotenv.config();
@@ -21,19 +24,23 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
-  message: {
-    success: false,
-    message: 'Too many requests from this IP, please try again later.'
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-app.use('/api/', limiter);
+// Rate limiting (disabled for development)
+if (process.env.NODE_ENV !== 'production') {
+  // No rate limiting in development
+  console.log('Rate limiting disabled in development mode');
+} else {
+  const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // Limit each IP to 100 requests per windowMs
+    message: {
+      success: false,
+      message: 'Too many requests from this IP, please try again later.'
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+  app.use('/api/', limiter);
+}
 
 // CORS configuration
 const corsOptions = {
@@ -46,12 +53,25 @@ const corsOptions = {
       'http://localhost:5173',
       'http://127.0.0.1:3000',
       'http://127.0.0.1:5173',
+      'http://192.168.56.1:3000',  // Allow local network IP
+      /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}:3000$/,  // Allow any 192.168.x.x:3000
       process.env.FRONTEND_URL
     ].filter(Boolean);
 
-    if (allowedOrigins.includes(origin)) {
+    // Check if origin matches any allowed origin (string or regex)
+    const isAllowed = allowedOrigins.some(allowed => {
+      if (typeof allowed === 'string') {
+        return allowed === origin;
+      } else if (allowed instanceof RegExp) {
+        return allowed.test(origin);
+      }
+      return false;
+    });
+
+    if (isAllowed) {
       callback(null, true);
     } else {
+      console.log('CORS blocked origin:', origin);
       callback(new Error('Not allowed by CORS'));
     }
   },
@@ -78,6 +98,9 @@ app.get('/health', (req, res) => {
 // API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/compiler', compilerRoutes);
+app.use('/api/problems', problemsRoutes);
+app.use('/api/progress', userProgressRoutes);
+app.use('/api/aptitude-questions', aptitudeQuestionsRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {

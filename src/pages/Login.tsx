@@ -31,6 +31,10 @@ const Login = () => {
       if (isLogin) {
         await login(formData.email, formData.password, selectedRole.toLowerCase() as any);
       } else {
+        // Disable signup for admin
+        if (selectedRole === "Admin") {
+          throw new Error("Admin account creation is not available. Please contact system administrator.");
+        }
         await signup(formData.email, formData.password, formData.name, selectedRole.toLowerCase() as any);
       }
       navigate(`/${selectedRole.toLowerCase()}/dashboard`);
@@ -131,9 +135,13 @@ const Login = () => {
               {isLogin 
                 ? (selectedRole === "Candidate" 
                   ? "Access your NeuroHire portal (Google sign-in available)" 
+                  : selectedRole === "Admin"
+                  ? "Admin access - Email/Password only"
                   : "Access your NeuroHire portal") 
                 : (selectedRole === "Candidate" 
                   ? "Join the future of hiring (Google sign-up available)" 
+                  : selectedRole === "Admin"
+                  ? "Admin registration not available"
                   : "Join the future of hiring")
               }
             </p>
@@ -245,7 +253,7 @@ const Login = () => {
               </button>
             </form>
 
-            {/* Google Sign-In - Only for Candidates */}
+            {/* Google Sign-In - Only for Candidates (not Admin or Recruiter) */}
             {selectedRole === "Candidate" && (
               <>
                 <div className="relative my-6">

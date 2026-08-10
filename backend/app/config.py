@@ -20,8 +20,14 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379"
     
     # CORS
-    ALLOWED_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173"]
-    ALLOWED_HOSTS: List[str] = ["localhost", "127.0.0.1"]
+    ALLOWED_ORIGINS: List[str] = [
+        "http://localhost:3000", 
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://192.168.56.1:3000",
+        "http://192.168.56.1:5173"
+    ]
+    ALLOWED_HOSTS: List[str] = ["*"]  # Allow all hosts for development
     
     # File storage
     STORAGE_PATH: str = "storage"

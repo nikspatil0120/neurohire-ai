@@ -1,5 +1,6 @@
 // API configuration and helper functions
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
+// Temporarily hardcoded to fix connection issues
+const API_BASE_URL = "http://localhost:5000/api";
 
 class ApiError extends Error {
   constructor(public status: number, message: string, public data?: any) {

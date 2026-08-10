@@ -1,12 +1,13 @@
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import GlassCard from "@/components/GlassCard";
-import { LayoutDashboard, Shield, Users, Building2, Brain, Camera, Monitor, Mic, Eye, AlertTriangle } from "lucide-react";
+import { LayoutDashboard, Shield, Users, Building2, Brain, Camera, Monitor, Mic, Eye, AlertTriangle, Code } from "lucide-react";
 
 const navItems = [
   { label: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
   { label: "System Monitor", href: "/admin/monitoring", icon: Shield },
   { label: "Recruiters", href: "/admin/dashboard", icon: Building2 },
   { label: "Candidates", href: "/admin/dashboard", icon: Users },
+  { label: "DSA Problems", href: "/admin/dsa-problems", icon: Code },
   { label: "AI Performance", href: "/admin/dashboard", icon: Brain },
 ];
 

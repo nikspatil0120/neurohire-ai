@@ -25,7 +25,20 @@ const LoginWithGoogle = () => {
     setSuccess("");
 
     try {
-      // Simple validation
+      // Admin login - hardcoded credentials
+      if (selectedRole === "Admin") {
+        if (formData.email === "admin@xyz.com" && formData.password === "admin@123") {
+          setSuccess("Admin login successful! Redirecting...");
+          setTimeout(() => {
+            navigate("/admin/dashboard");
+          }, 1500);
+        } else {
+          setError("Invalid admin credentials");
+        }
+        return;
+      }
+
+      // Simple validation for other roles
       if (formData.email && formData.password.length >= 6) {
         // Mock successful login
         setSuccess(`${isLogin ? 'Login' : 'Account creation'} successful! Redirecting...`);
@@ -146,9 +159,13 @@ const LoginWithGoogle = () => {
               {isLogin 
                 ? (selectedRole === "Candidate" 
                   ? "Access your NeuroHire portal (Google sign-in available)" 
+                  : selectedRole === "Admin"
+                  ? "Admin access only - Use credentials"
                   : "Access your NeuroHire portal") 
                 : (selectedRole === "Candidate" 
                   ? "Join the future of hiring (Google sign-up available)" 
+                  : selectedRole === "Admin"
+                  ? "Admin registration not available"
                   : "Join the future of hiring")
               }
             </p>

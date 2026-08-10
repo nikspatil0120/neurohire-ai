@@ -4,50 +4,50 @@
 
 @layer base {
   :root {
-    --background: 222 47% 5%;
-    --foreground: 195 100% 90%;
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
 
-    --card: 222 40% 8%;
-    --card-foreground: 195 100% 90%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
 
-    --popover: 222 40% 8%;
-    --popover-foreground: 195 100% 90%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
 
-    --primary: 185 100% 50%;
-    --primary-foreground: 222 47% 5%;
+    --primary: 185 100% 40%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 263 70% 58%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 263 70% 50%;
+    --secondary-foreground: 0 0% 100%;
 
-    --muted: 222 30% 14%;
-    --muted-foreground: 215 20% 55%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 20% 40%;
 
-    --accent: 263 70% 58%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 263 70% 50%;
+    --accent-foreground: 0 0% 100%;
 
     --destructive: 0 84% 60%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 185 40% 20%;
-    --input: 222 30% 14%;
-    --ring: 185 100% 50%;
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 185 100% 40%;
 
     --radius: 0.75rem;
 
-    --sidebar-background: 222 47% 6%;
-    --sidebar-foreground: 195 100% 85%;
-    --sidebar-primary: 185 100% 50%;
-    --sidebar-primary-foreground: 222 47% 5%;
-    --sidebar-accent: 263 70% 58%;
-    --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 185 40% 15%;
-    --sidebar-ring: 185 100% 50%;
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 222 47% 11%;
+    --sidebar-primary: 185 100% 40%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 263 70% 50%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 214 32% 91%;
+    --sidebar-ring: 185 100% 40%;
 
-    --neon-cyan: 185 100% 50%;
-    --neon-purple: 263 70% 58%;
+    --neon-cyan: 185 100% 40%;
+    --neon-purple: 263 70% 50%;
     --neon-pink: 330 80% 60%;
-    --glass: 222 40% 10%;
-    --glass-border: 185 60% 30%;
+    --glass: 0 0% 98%;
+    --glass-border: 214 32% 91%;
   }
 }
 

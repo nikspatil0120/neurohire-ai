@@ -7,8 +7,7 @@ import os from 'os';
 class FullCompilerService {
   constructor() {
     this.docker = new Docker();
-    // Use OS-appropriate temp directory
-    this.tempDir = process.platform === 'win32' 
+    this.tempDir = process.platform === 'win32'
       ? path.join(os.tmpdir(), 'neurohire-executions')
       : '/tmp/neurohire-executions';
   }
@@ -16,22 +15,13 @@ class FullCompilerService {
   async executeProgram(code, language, input, timeLimit = 5, memoryLimit = 128) {
     const executionId = uuidv4();
     const workDir = path.join(this.tempDir, executionId);
-    
+
     try {
-      // Create workspace
       await fs.mkdir(workDir, { recursive: true });
-      
-      // Write code and input files
-      const { codeFile, inputFile } = await this.prepareFiles(workDir, code, language, input);
-      
-      // Execute in Docker container
-      const result = await this.runInContainer(workDir, codeFile, language, inputFile, timeLimit, memoryLimit);
-      
-      // Cleanup
+      const { codeFile } = await this.prepareFiles(workDir, code, language, input);
+      const result = await this.runInContainer(workDir, codeFile, language, timeLimit, memoryLimit);
       await this.cleanup(workDir);
-      
       return result;
-      
     } catch (error) {
       await this.cleanup(workDir);
       throw error;
@@ -40,122 +30,142 @@ class FullCompilerService {
 
   async prepareFiles(workDir, code, language, input) {
     const languageConfig = {
-      python: { extension: '.py', filename: 'solution.py' },
-      java: { extension: '.java', filename: 'Solution.java' },
-      cpp: { extension: '.cpp', filename: 'solution.cpp' },
-      c: { extension: '.c', filename: 'solution.c' }
+      python: { filename: 'solution.py' },
+      java:   { filename: 'Main.java' },
+      cpp:    { filename: 'solution.cpp' },
+      c:      { filename: 'solution.c' }
     };
 
     const config = languageConfig[language];
-    if (!config) {
-      throw new Error(`Unsupported language: ${language}`);
-    }
+    if (!config) throw new Error(`Unsupported language: ${language}`);
 
-    const codeFile = path.join(workDir, config.filename);
+    const codeFile  = path.join(workDir, config.filename);
     const inputFile = path.join(workDir, 'input.txt');
 
-    await fs.writeFile(codeFile, code);
-    await fs.writeFile(inputFile, input);
+    await fs.writeFile(codeFile,  code,        'utf8');
+    await fs.writeFile(inputFile, input || '',  'utf8');
 
-    return { codeFile: config.filename, inputFile: 'input.txt' };
+    return { codeFile: config.filename };
   }
 
-  async runInContainer(workDir, codeFile, language, inputFile, timeLimit, memoryLimit) {
-    const commands = this.getExecutionCommands(language, codeFile);
-    
-    const container = await this.docker.createContainer({
-      Image: 'neurohire-compiler:latest', // Your custom image with all compilers
-      Cmd: ['sh', '-c', commands.join(' && ')],
-      WorkingDir: '/workspace',
-      HostConfig: {
-        Memory: memoryLimit * 1024 * 1024,
-        CpuQuota: 50000, // 50% CPU
-        NetworkMode: 'none',
-        ReadonlyRootfs: false, // Need write access for compilation
-        Binds: [`${workDir}:/workspace`],
-        Tmpfs: { '/tmp': 'rw,noexec,nosuid,size=50m' }
-      },
-      User: 'compiler', // Non-root user
-      AttachStdout: true,
-      AttachStderr: true,
-      AttachStdin: false
-    });
+  // Build the shell command that runs inside the container.
+  // stdout  → output.txt
+  // stderr  → error.txt
+  // exit code → exit_code.txt
+  getExecutionCommand(language, codeFile) {
+    const cmds = {
+      python: `python3 ${codeFile} < input.txt > output.txt 2>error.txt`,
 
-    const stream = await container.attach({
-      stream: true,
-      stdout: true,
-      stderr: true
-    });
+      // javac writes errors to stderr; java reads stdin from input.txt
+      java: `javac ${codeFile} 2>error.txt && java -cp . Main < input.txt > output.txt 2>>error.txt`,
 
-    let output = '';
-    let error = '';
+      cpp: `g++ -O2 -o solution ${codeFile} -std=c++17 2>error.txt && ./solution < input.txt > output.txt 2>>error.txt`,
 
-    stream.on('data', (chunk) => {
-      const data = chunk.toString();
-      if (chunk[0] === 1) { // stdout
-        output += data.slice(8);
-      } else if (chunk[0] === 2) { // stderr
-        error += data.slice(8);
-      }
-    });
-
-    await container.start();
-
-    // Handle timeout
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Execution timeout')), timeLimit * 1000);
-    });
-
-    try {
-      const result = await Promise.race([container.wait(), timeoutPromise]);
-      
-      return {
-        output: output.trim(),
-        error: error.trim(),
-        exitCode: result.StatusCode,
-        status: result.StatusCode === 0 ? 'success' : 'error'
-      };
-      
-    } catch (error) {
-      await container.kill();
-      return {
-        output: '',
-        error: 'Execution timeout',
-        exitCode: -1,
-        status: 'timeout'
-      };
-    } finally {
-      await container.remove();
-    }
-  }
-
-  getExecutionCommands(language, codeFile) {
-    const commands = {
-      python: [
-        `python3 ${codeFile} < input.txt`
-      ],
-      java: [
-        `javac ${codeFile}`,
-        `java Solution < input.txt`
-      ],
-      cpp: [
-        `g++ -o solution ${codeFile} -std=c++17`,
-        `./solution < input.txt`
-      ],
-      c: [
-        `gcc -o solution ${codeFile}`,
-        `./solution < input.txt`
-      ]
+      c: `gcc -O2 -o solution ${codeFile} 2>error.txt && ./solution < input.txt > output.txt 2>>error.txt`
     };
 
-    return commands[language] || [];
+    return cmds[language] ?? null;
+  }
+
+  async runInContainer(workDir, codeFile, language, timeLimit, memoryLimit) {
+    const command = this.getExecutionCommand(language, codeFile);
+
+    if (!command) {
+      return { output: '', error: 'Unsupported language', exitCode: 1, status: 'error' };
+    }
+
+    // Wrap command so we always capture the exit code in a file.
+    // Using "|| true" prevents the shell from stopping on compile error
+    // (we still capture the exit code manually).
+    const shellCmd = `(${command}); echo $? > exit_code.txt`;
+
+    let container;
+
+    try {
+      container = await this.docker.createContainer({
+        Image: 'neurohire-compiler:latest',
+        Cmd: ['sh', '-c', shellCmd],
+        WorkingDir: '/workspace',
+        HostConfig: {
+          Memory:     memoryLimit * 1024 * 1024,
+          MemorySwap: memoryLimit * 1024 * 1024, // no swap
+          CpuQuota:   50000,                      // 50% of one CPU
+          NetworkMode: 'none',                    // no network access
+          Binds: [`${workDir}:/workspace`],
+        },
+        // Don't attach streams — we read from files after execution
+        AttachStdout: false,
+        AttachStderr: false,
+      });
+
+      await container.start();
+
+      // Race: wait for container to finish vs timeout
+      let timedOut = false;
+      try {
+        await Promise.race([
+          container.wait(),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('timeout')), timeLimit * 1000)
+          )
+        ]);
+      } catch (e) {
+        if (e.message === 'timeout') {
+          timedOut = true;
+          try { await container.kill(); } catch (_) { /* already dead */ }
+        } else {
+          throw e;
+        }
+      }
+
+      if (timedOut) {
+        return {
+          output:   '',
+          error:    'Time Limit Exceeded',
+          exitCode: -1,
+          status:   'timeout'
+        };
+      }
+
+      // ── Read files written inside the container ──────────────────────────
+      let output   = '';
+      let error    = '';
+      let exitCode = 1;
+
+      try {
+        output = await fs.readFile(path.join(workDir, 'output.txt'), 'utf8');
+      } catch (_) { /* file may not exist on compile error */ }
+
+      try {
+        error = await fs.readFile(path.join(workDir, 'error.txt'), 'utf8');
+      } catch (_) {}
+
+      try {
+        const exitStr = await fs.readFile(path.join(workDir, 'exit_code.txt'), 'utf8');
+        exitCode = parseInt(exitStr.trim(), 10);
+        if (isNaN(exitCode)) exitCode = 1;
+      } catch (_) {}
+
+      return {
+        output:   output.trim(),
+        error:    error.trim(),
+        exitCode,
+        status:   exitCode === 0 ? 'success' : 'error'
+      };
+
+    } finally {
+      // Always remove the container even if something threw
+      if (container) {
+        try { await container.remove({ force: true }); } catch (_) {}
+      }
+    }
   }
 
   async cleanup(workDir) {
     try {
       await fs.rm(workDir, { recursive: true, force: true });
-    } catch (error) {
-      console.error('Cleanup failed:', error);
+    } catch (e) {
+      console.error('Cleanup failed:', e);
     }
   }
 }

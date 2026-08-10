@@ -1,16 +1,18 @@
 import express from 'express';
 import FullCompilerService from '../services/fullCompilerService.js';
+import TestHarnessGenerator from '../services/testHarnessGenerator.js';
 import { body, validationResult } from 'express-validator';
 
 const router = express.Router();
 const compilerService = new FullCompilerService();
+const harnessGenerator = new TestHarnessGenerator();
 
 // Validation middleware
 const validateExecution = [
   body('code').notEmpty().withMessage('Code is required'),
   body('language').isIn(['python', 'java', 'cpp', 'c']).withMessage('Invalid language'),
   body('input').optional().isString(),
-  body('timeLimit').optional().isInt({ min: 1, max: 30 }).withMessage('Time limit must be between 1-30 seconds'),
+  body('timeLimit').optional().isInt({ min: 1, max: 120 }).withMessage('Time limit must be between 1-120 seconds'),
   body('memoryLimit').optional().isInt({ min: 32, max: 512 }).withMessage('Memory limit must be between 32-512 MB')
 ];
 
@@ -80,7 +82,7 @@ router.post('/test', validateExecution, async (req, res) => {
       });
     }
 
-    const { code, language, testCases, timeLimit = 5, memoryLimit = 128 } = req.body;
+    const { code, language, testCases, functionSignature, timeLimit = 5, memoryLimit = 128 } = req.body;
 
     if (!Array.isArray(testCases) || testCases.length === 0) {
       return res.status(400).json({
@@ -93,10 +95,29 @@ router.post('/test', validateExecution, async (req, res) => {
 
     for (const testCase of testCases) {
       try {
+        // Determine if we need to wrap the code
+        let finalCode = code;
+        let testInput = testCase.input || '';
+        
+        // If functionSignature and typed inputs are provided, generate wrapper
+        if (functionSignature && testCase.inputs && Array.isArray(testCase.inputs)) {
+          const inputTypes = testCase.inputs.map(inp => inp.type);
+          const inputValues = testCase.inputs.map(inp => inp.value).join('\n');
+          
+          finalCode = harnessGenerator.generateWrapper(
+            code,
+            language,
+            functionSignature,
+            inputTypes
+          );
+          
+          testInput = inputValues;
+        }
+        
         const result = await compilerService.executeProgram(
-          code,
+          finalCode,
           language,
-          testCase.input,
+          testInput,
           timeLimit,
           memoryLimit
         );
@@ -105,7 +126,7 @@ router.post('/test', validateExecution, async (req, res) => {
                       result.output.trim() === testCase.expectedOutput.trim();
 
         results.push({
-          input: testCase.input,
+          input: testInput,
           expectedOutput: testCase.expectedOutput,
           actualOutput: result.output.trim(),
           passed,
@@ -115,7 +136,7 @@ router.post('/test', validateExecution, async (req, res) => {
 
       } catch (error) {
         results.push({
-          input: testCase.input,
+          input: testCase.input || '',
           expectedOutput: testCase.expectedOutput,
           actualOutput: '',
           passed: false,
