@@ -218,7 +218,7 @@ const ProblemList = () => {
                         to={`/candidate/technical-coding?problemId=${problem.id}`}
                         className="text-foreground hover:text-primary transition-colors font-medium"
                       >
-                        {problem.serialNumber || '-'}. {problem.title}
+                        {problem.title}
                       </Link>
                       <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
                         <div className="flex items-center gap-1">

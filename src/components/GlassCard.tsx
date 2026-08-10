@@ -7,9 +7,10 @@ interface GlassCardProps {
   variant?: "default" | "neon" | "purple" | "holographic";
   hover?: boolean;
   style?: React.CSSProperties;
+  onClick?: () => void;
 }
 
-const GlassCard = ({ children, className, variant = "default", hover = true, style }: GlassCardProps) => {
+const GlassCard = ({ children, className, variant = "default", hover = true, style, onClick }: GlassCardProps) => {
   const variants = {
     default: "glass-panel",
     neon: "glass-panel neon-border",
@@ -23,9 +24,11 @@ const GlassCard = ({ children, className, variant = "default", hover = true, sty
         variants[variant],
         "p-6 transition-all duration-300",
         hover && "hover:scale-[1.02] hover:shadow-[0_0_30px_hsl(185_100%_50%/0.15)]",
+        onClick && "cursor-pointer",
         className
       )}
       style={style}
+      onClick={onClick}
     >
       {children}
     </div>
