@@ -64,47 +64,67 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const login = async (email: string, password: string, role: UserRole) => {
     setIsLoading(true);
     try {
-      // Handle admin login with hardcoded credentials
+      // Handle admin login with hardcoded credentials (no database)
       if (role === "admin") {
         if (email === "admin@xyz.com" && password === "admin@123") {
           const adminUser: User = {
-            id: "admin_001",
-            name: "Admin User",
+            id: "admin_hardcoded",
+            name: "System Administrator",
             email: "admin@xyz.com",
             role: "admin",
             avatar: undefined,
             isActive: true,
             lastLogin: new Date().toISOString()
           };
-          const adminToken = "admin_token_" + Date.now();
+          const adminToken = "admin_token_hardcoded_" + Date.now();
           setAuthToken(adminToken);
           setUser(adminUser);
+          console.log('Admin logged in (hardcoded)');
           return;
         } else {
           throw new Error("Invalid admin credentials");
         }
       }
 
-      // Mock login for candidates and recruiters (no backend required)
-      // In production, this would call the backend API
-      if (email && password) {
-        const mockUser: User = {
-          id: `${role}_${Date.now()}`,
-          name: email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-          email: email,
-          role: role,
-          avatar: undefined,
-          isActive: true,
-          lastLogin: new Date().toISOString()
-        };
-        const mockToken = `${role}_token_${Date.now()}`;
-        setAuthToken(mockToken);
-        setUser(mockUser);
-        console.log('User logged in (mock):', mockUser);
-        return;
+      // For candidates and recruiters, use the backend API
+      const formData = new URLSearchParams();
+      formData.append('username', email);
+      formData.append('password', password);
+
+      const response = await fetch('http://localhost:8000/api/v1/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: formData
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Login failed');
       }
 
-      throw new Error("Invalid credentials");
+      const data = await response.json();
+      
+      // Verify role matches
+      if (data.user.role !== role) {
+        throw new Error(`This account is registered as ${data.user.role}, not ${role}`);
+      }
+
+      // Set token and user
+      setAuthToken(data.access_token);
+      setUser({
+        id: data.user.id,
+        name: data.user.full_name,
+        email: data.user.email,
+        role: data.user.role,
+        avatar: undefined,
+        isActive: data.user.is_active,
+        lastLogin: data.user.last_login
+      });
+      
+      console.log('User logged in:', data.user);
+      return;
     } catch (error: any) {
       console.error('Login error:', error);
       throw new Error(error.message || 'Login failed');
@@ -116,6 +136,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const signup = async (email: string, password: string, name: string, role: UserRole) => {
     setIsLoading(true);
     try {
+      // Block admin signup - admin is hardcoded only
+      if (role === "admin") {
+        throw new Error("Admin accounts cannot be created. Admin access is restricted to system administrators only.");
+      }
+
       const response = await api.register({ name, email, password, role });
       
       if (response.success && response.data) {

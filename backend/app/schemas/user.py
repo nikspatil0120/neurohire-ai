@@ -22,7 +22,7 @@ class GoogleAuth(BaseModel):
     google_token: str
 
 class UserResponse(UserBase):
-    id: int
+    id: str  # Changed from int to str for MongoDB ObjectId
     role: str
     is_active: bool
     created_at: datetime

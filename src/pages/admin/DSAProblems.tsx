@@ -3,7 +3,7 @@ import DashboardLayout from "@/components/layout/DashboardLayout";
 import GlassCard from "@/components/GlassCard";
 import { 
   LayoutDashboard, Shield, Users, Building2, Brain, Code, Plus, 
-  Edit, Trash2, Save, X, CheckCircle, XCircle, AlertCircle, Eye, EyeOff, Globe, Lock, Wand2
+  Edit, Trash2, Save, X, CheckCircle, XCircle, AlertCircle, Eye, EyeOff, Globe, Lock, Wand2, BookOpen
 } from "lucide-react";
 import { 
   getAllProblems, 
@@ -23,6 +23,7 @@ const navItems = [
   { label: "Recruiters", href: "/admin/recruiters", icon: Building2 },
   { label: "Candidates", href: "/admin/candidates", icon: Users },
   { label: "DSA Problems", href: "/admin/dsa-problems", icon: Code },
+  { label: "Aptitude Questions", href: "/admin/aptitude-questions", icon: BookOpen },
   { label: "AI Performance", href: "/admin/ai-performance", icon: Brain },
 ];
 

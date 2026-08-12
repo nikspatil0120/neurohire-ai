@@ -9,7 +9,7 @@ import logging
 from app.config import settings
 from app.core.database import init_db, close_db
 from app.utils.logger import setup_logging, APILogger, SecurityLogger
-from app.api import auth, users, jobs, interviews, websocket, problems
+from app.api import auth, users, jobs, interviews, websocket, problems, admin, aptitude
 
 # Setup logging
 setup_logging(log_level="INFO" if not settings.DEBUG else "DEBUG")
@@ -69,7 +69,7 @@ app = FastAPI(
 # Add middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS,
+    allow_origins=settings.allowed_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -77,7 +77,7 @@ app.add_middleware(
 
 app.add_middleware(
     TrustedHostMiddleware,
-    allowed_hosts=settings.ALLOWED_HOSTS
+    allowed_hosts=settings.allowed_hosts_list
 )
 
 # Request logging middleware
@@ -201,6 +201,8 @@ app.include_router(jobs.router, prefix="/api/v1")
 app.include_router(interviews.router, prefix="/api/v1")
 app.include_router(websocket.router, prefix="/api/v1")
 app.include_router(problems.router, prefix="/api/v1")
+app.include_router(admin.router, prefix="/api/v1")
+app.include_router(aptitude.router, prefix="/api/v1")
 
 # Additional endpoints
 @app.get("/api/v1/system/info")

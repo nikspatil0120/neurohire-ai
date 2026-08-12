@@ -1,7 +1,7 @@
 // Shared problem store using Backend API
-// All data is stored in MongoDB via Node.js backend
+// All data is stored in MongoDB via FastAPI backend
 
-const API_BASE_URL = "http://localhost:5000/api";
+const API_BASE_URL = "http://localhost:8000/api/v1";
 
 export interface TestCase {
   inputs: {

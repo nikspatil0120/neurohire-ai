@@ -23,6 +23,17 @@ const Login = () => {
   const navigate = useNavigate();
   const { login, signup, loginWithGoogle, isLoading } = useAuth();
 
+  // Show Admin role only in Sign In mode
+  const availableRoles = isLogin ? roles : roles.filter(r => r !== "Admin");
+
+  // Reset to Candidate if switching to signup with Admin selected
+  const handleToggleMode = (loginMode: boolean) => {
+    setIsLogin(loginMode);
+    if (!loginMode && selectedRole === "Admin") {
+      setSelectedRole("Candidate");
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -31,10 +42,6 @@ const Login = () => {
       if (isLogin) {
         await login(formData.email, formData.password, selectedRole.toLowerCase() as any);
       } else {
-        // Disable signup for admin
-        if (selectedRole === "Admin") {
-          throw new Error("Admin account creation is not available. Please contact system administrator.");
-        }
         await signup(formData.email, formData.password, formData.name, selectedRole.toLowerCase() as any);
       }
       navigate(`/${selectedRole.toLowerCase()}/dashboard`);
@@ -105,7 +112,7 @@ const Login = () => {
             {/* Toggle between Login and Signup */}
             <div className="flex gap-2 mb-8">
               <button
-                onClick={() => setIsLogin(true)}
+                onClick={() => handleToggleMode(true)}
                 className={cn(
                   "flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all duration-300",
                   isLogin
@@ -116,7 +123,7 @@ const Login = () => {
                 Sign In
               </button>
               <button
-                onClick={() => setIsLogin(false)}
+                onClick={() => handleToggleMode(false)}
                 className={cn(
                   "flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all duration-300",
                   !isLogin
@@ -140,15 +147,13 @@ const Login = () => {
                   : "Access your NeuroHire portal") 
                 : (selectedRole === "Candidate" 
                   ? "Join the future of hiring (Google sign-up available)" 
-                  : selectedRole === "Admin"
-                  ? "Admin registration not available"
                   : "Join the future of hiring")
               }
             </p>
 
             {/* Role selector */}
             <div className="flex gap-2 mb-8">
-              {roles.map((role) => (
+              {availableRoles.map((role) => (
                 <button
                   key={role}
                   onClick={() => setSelectedRole(role)}

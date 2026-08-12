@@ -1,0 +1,562 @@
+[
+  {
+    "question": "What is the synonym of 'abundant'?",
+    "options": [
+      { "text": "Scarce", "isCorrect": false },
+      { "text": "Plentiful", "isCorrect": true },
+      { "text": "Limited", "isCorrect": false },
+      { "text": "Rare", "isCorrect": false }
+    ],
+    "explanation": "Abundant means existing or available in large quantities; plentiful.",
+    "category": "Verbal",
+    "difficulty": "Easy",
+    "tags": ["vocabulary", "synonyms", "english"],
+    "serialNumber": 1
+  },
+  {
+    "question": "Choose the antonym of 'ancient'.",
+    "options": [
+      { "text": "Old", "isCorrect": false },
+      { "text": "Historic", "isCorrect": false },
+      { "text": "Modern", "isCorrect": true },
+      { "text": "Traditional", "isCorrect": false }
+    ],
+    "explanation": "Ancient means very old, while modern means relating to the present or recent times.",
+    "category": "Verbal",
+    "difficulty": "Easy",
+    "tags": ["vocabulary", "antonyms", "english"],
+    "serialNumber": 2
+  },
+  {
+    "question": "Choose the correctly spelled word.",
+    "options": [
+      { "text": "Occassion", "isCorrect": false },
+      { "text": "Ocassion", "isCorrect": false },
+      { "text": "Occasion", "isCorrect": true },
+      { "text": "Occassionn", "isCorrect": false }
+    ],
+    "explanation": "The correct spelling is 'Occasion'.",
+    "category": "Verbal",
+    "difficulty": "Easy",
+    "tags": ["spelling", "english", "grammar"],
+    "serialNumber": 3
+  },
+  {
+    "question": "Fill in the blank: She _____ to the office every day.",
+    "options": [
+      { "text": "go", "isCorrect": false },
+      { "text": "goes", "isCorrect": true },
+      { "text": "going", "isCorrect": false },
+      { "text": "gone", "isCorrect": false }
+    ],
+    "explanation": "The singular subject 'She' requires the third-person singular verb 'goes'.",
+    "category": "Verbal",
+    "difficulty": "Easy",
+    "tags": ["grammar", "tenses", "subject-verb-agreement"],
+    "serialNumber": 4
+  },
+  {
+    "question": "Choose the word closest in meaning to 'meticulous'.",
+    "options": [
+      { "text": "Careless", "isCorrect": false },
+      { "text": "Careful", "isCorrect": true },
+      { "text": "Quick", "isCorrect": false },
+      { "text": "Confused", "isCorrect": false }
+    ],
+    "explanation": "Meticulous means showing great attention to detail; therefore, careful is the closest meaning.",
+    "category": "Verbal",
+    "difficulty": "Medium",
+    "tags": ["vocabulary", "synonyms"],
+    "serialNumber": 5
+  },
+  {
+    "question": "Identify the grammatically correct sentence.",
+    "options": [
+      { "text": "Neither of the boys are ready.", "isCorrect": false },
+      { "text": "Neither of the boys is ready.", "isCorrect": true },
+      { "text": "Neither of the boys were ready.", "isCorrect": false },
+      { "text": "Neither of the boys have ready.", "isCorrect": false }
+    ],
+    "explanation": "'Neither' is treated as singular in standard English, so it takes 'is'.",
+    "category": "Verbal",
+    "difficulty": "Medium",
+    "tags": ["grammar", "subject-verb-agreement"],
+    "serialNumber": 6
+  },
+  {
+    "question": "What does the idiom 'break the ice' mean?",
+    "options": [
+      { "text": "To end a friendship", "isCorrect": false },
+      { "text": "To start a conversation in a social situation", "isCorrect": true },
+      { "text": "To create a problem", "isCorrect": false },
+      { "text": "To avoid communication", "isCorrect": false }
+    ],
+    "explanation": "'Break the ice' means to initiate conversation or make people feel more comfortable.",
+    "category": "Verbal",
+    "difficulty": "Medium",
+    "tags": ["idioms", "vocabulary", "english"],
+    "serialNumber": 7
+  },
+  {
+    "question": "Choose the correct indirect speech: He said, 'I am busy.'",
+    "options": [
+      { "text": "He said that I am busy.", "isCorrect": false },
+      { "text": "He said that he was busy.", "isCorrect": true },
+      { "text": "He said that he is busy.", "isCorrect": false },
+      { "text": "He says that he was busy.", "isCorrect": false }
+    ],
+    "explanation": "In reported speech, 'I' changes to 'he' and 'am' changes to 'was' because the reporting verb is in the past.",
+    "category": "Verbal",
+    "difficulty": "Hard",
+    "tags": ["grammar", "reported-speech"],
+    "serialNumber": 8
+  },
+  {
+    "question": "Choose the word that best completes the sentence: The manager's decision was _____ because it was supported by substantial evidence.",
+    "options": [
+      { "text": "arbitrary", "isCorrect": false },
+      { "text": "unwarranted", "isCorrect": false },
+      { "text": "justified", "isCorrect": true },
+      { "text": "ambiguous", "isCorrect": false }
+    ],
+    "explanation": "A decision supported by substantial evidence can be described as justified.",
+    "category": "Verbal",
+    "difficulty": "Hard",
+    "tags": ["vocabulary", "contextual-usage"],
+    "serialNumber": 9
+  },
+  {
+    "question": "Identify the sentence with the correct use of the word 'compliment'.",
+    "options": [
+      { "text": "She paid me a compliment on my presentation.", "isCorrect": true },
+      { "text": "She paid me a complement on my presentation.", "isCorrect": false },
+      { "text": "She complimented the report by adding a missing part.", "isCorrect": false },
+      { "text": "The two colors compliment each other perfectly.", "isCorrect": false }
+    ],
+    "explanation": "'Compliment' means praise, while 'complement' means something that completes or enhances another thing.",
+    "category": "Verbal",
+    "difficulty": "Hard",
+    "tags": ["vocabulary", "homophones", "grammar"],
+    "serialNumber": 10
+  },
+  {
+    "question": "What is 25% of 200?",
+    "options": [
+      { "text": "25", "isCorrect": false },
+      { "text": "40", "isCorrect": false },
+      { "text": "50", "isCorrect": true },
+      { "text": "75", "isCorrect": false }
+    ],
+    "explanation": "25% of 200 = (25/100) × 200 = 50.",
+    "category": "Quantitative",
+    "difficulty": "Easy",
+    "tags": ["percentage", "arithmetic"],
+    "serialNumber": 11
+  },
+  {
+    "question": "What is the average of 10, 20, 30, 40 and 50?",
+    "options": [
+      { "text": "25", "isCorrect": false },
+      { "text": "30", "isCorrect": true },
+      { "text": "35", "isCorrect": false },
+      { "text": "40", "isCorrect": false }
+    ],
+    "explanation": "Average = (10 + 20 + 30 + 40 + 50) / 5 = 150 / 5 = 30.",
+    "category": "Quantitative",
+    "difficulty": "Easy",
+    "tags": ["average", "arithmetic"],
+    "serialNumber": 12
+  },
+  {
+    "question": "A shirt costs ₹800. If a discount of 10% is given, what is the selling price?",
+    "options": [
+      { "text": "₹700", "isCorrect": false },
+      { "text": "₹720", "isCorrect": true },
+      { "text": "₹740", "isCorrect": false },
+      { "text": "₹760", "isCorrect": false }
+    ],
+    "explanation": "Discount = 10% of ₹800 = ₹80. Selling price = ₹800 − ₹80 = ₹720.",
+    "category": "Quantitative",
+    "difficulty": "Easy",
+    "tags": ["percentage", "profit-loss", "discount"],
+    "serialNumber": 13
+  },
+  {
+    "question": "If a train travels at 60 km/h, how far will it travel in 2 hours?",
+    "options": [
+      { "text": "100 km", "isCorrect": false },
+      { "text": "110 km", "isCorrect": false },
+      { "text": "120 km", "isCorrect": true },
+      { "text": "140 km", "isCorrect": false }
+    ],
+    "explanation": "Distance = Speed × Time = 60 × 2 = 120 km.",
+    "category": "Quantitative",
+    "difficulty": "Easy",
+    "tags": ["speed-distance-time", "arithmetic"],
+    "serialNumber": 14
+  },
+  {
+    "question": "A number is increased by 20% and then decreased by 20%. What is the net percentage change?",
+    "options": [
+      { "text": "0%", "isCorrect": false },
+      { "text": "4% decrease", "isCorrect": true },
+      { "text": "4% increase", "isCorrect": false },
+      { "text": "2% decrease", "isCorrect": false }
+    ],
+    "explanation": "Let the number be 100. After 20% increase it becomes 120. Decreasing 120 by 20% gives 96. Hence the net decrease is 4%.",
+    "category": "Quantitative",
+    "difficulty": "Medium",
+    "tags": ["percentage", "successive-percentage"],
+    "serialNumber": 15
+  },
+  {
+    "question": "The ratio of two numbers is 3:5 and their sum is 64. What is the larger number?",
+    "options": [
+      { "text": "24", "isCorrect": false },
+      { "text": "32", "isCorrect": false },
+      { "text": "40", "isCorrect": true },
+      { "text": "48", "isCorrect": false }
+    ],
+    "explanation": "Total parts = 3 + 5 = 8. One part = 64/8 = 8. Larger number = 5 × 8 = 40.",
+    "category": "Quantitative",
+    "difficulty": "Medium",
+    "tags": ["ratio", "proportion"],
+    "serialNumber": 16
+  },
+  {
+    "question": "A can complete a work in 12 days and B can complete it in 18 days. How many days will they take together?",
+    "options": [
+      { "text": "6.2 days", "isCorrect": false },
+      { "text": "7.2 days", "isCorrect": true },
+      { "text": "8.5 days", "isCorrect": false },
+      { "text": "9 days", "isCorrect": false }
+    ],
+    "explanation": "Combined rate = 1/12 + 1/18 = 5/36. Time = 36/5 = 7.2 days.",
+    "category": "Quantitative",
+    "difficulty": "Medium",
+    "tags": ["time-and-work", "arithmetic"],
+    "serialNumber": 17
+  },
+  {
+    "question": "A sum of ₹10,000 is invested at 8% compound interest per annum for 2 years. What is the amount?",
+    "options": [
+      { "text": "₹11,600", "isCorrect": false },
+      { "text": "₹11,664", "isCorrect": true },
+      { "text": "₹11,800", "isCorrect": false },
+      { "text": "₹12,000", "isCorrect": false }
+    ],
+    "explanation": "Amount = 10000 × (1.08)^2 = ₹11,664.",
+    "category": "Quantitative",
+    "difficulty": "Hard",
+    "tags": ["compound-interest", "finance"],
+    "serialNumber": 18
+  },
+  {
+    "question": "A boat travels 30 km downstream in 2 hours and the same distance upstream in 3 hours. What is the speed of the boat in still water?",
+    "options": [
+      { "text": "10 km/h", "isCorrect": false },
+      { "text": "12.5 km/h", "isCorrect": true },
+      { "text": "15 km/h", "isCorrect": false },
+      { "text": "17.5 km/h", "isCorrect": false }
+    ],
+    "explanation": "Downstream speed = 15 km/h and upstream speed = 10 km/h. Still-water speed = (15 + 10)/2 = 12.5 km/h.",
+    "category": "Quantitative",
+    "difficulty": "Hard",
+    "tags": ["boats-streams", "speed-distance-time"],
+    "serialNumber": 19
+  },
+  {
+    "question": "If x + 1/x = 5, what is x² + 1/x²?",
+    "options": [
+      { "text": "21", "isCorrect": false },
+      { "text": "23", "isCorrect": true },
+      { "text": "25", "isCorrect": false },
+      { "text": "27", "isCorrect": false }
+    ],
+    "explanation": "Squaring gives x² + 2 + 1/x² = 25. Therefore x² + 1/x² = 23.",
+    "category": "Quantitative",
+    "difficulty": "Hard",
+    "tags": ["algebra", "identities"],
+    "serialNumber": 20
+  },
+  {
+    "question": "Find the next number in the series: 2, 4, 6, 8, ?",
+    "options": [
+      { "text": "9", "isCorrect": false },
+      { "text": "10", "isCorrect": true },
+      { "text": "11", "isCorrect": false },
+      { "text": "12", "isCorrect": false }
+    ],
+    "explanation": "Each number increases by 2. Therefore, the next number is 10.",
+    "category": "Reasoning",
+    "difficulty": "Easy",
+    "tags": ["number-series", "logical-reasoning"],
+    "serialNumber": 21
+  },
+  {
+    "question": "If CAT is coded as DBU, how is DOG coded?",
+    "options": [
+      { "text": "EPH", "isCorrect": true },
+      { "text": "EOG", "isCorrect": false },
+      { "text": "FPH", "isCorrect": false },
+      { "text": "DPI", "isCorrect": false }
+    ],
+    "explanation": "Each letter is shifted one position forward: D→E, O→P, G→H. Hence DOG becomes EPH.",
+    "category": "Reasoning",
+    "difficulty": "Easy",
+    "tags": ["coding-decoding", "logical-reasoning"],
+    "serialNumber": 22
+  },
+  {
+    "question": "Find the odd one out.",
+    "options": [
+      { "text": "Apple", "isCorrect": false },
+      { "text": "Mango", "isCorrect": false },
+      { "text": "Banana", "isCorrect": false },
+      { "text": "Carrot", "isCorrect": true }
+    ],
+    "explanation": "Apple, mango and banana are fruits, whereas carrot is a vegetable.",
+    "category": "Reasoning",
+    "difficulty": "Easy",
+    "tags": ["classification", "odd-one-out"],
+    "serialNumber": 23
+  },
+  {
+    "question": "A person walks 5 km north and then 5 km east. In which direction is he from his starting point?",
+    "options": [
+      { "text": "North-West", "isCorrect": false },
+      { "text": "South-East", "isCorrect": false },
+      { "text": "North-East", "isCorrect": true },
+      { "text": "South-West", "isCorrect": false }
+    ],
+    "explanation": "Moving north and then east places the person to the north-east of the starting point.",
+    "category": "Reasoning",
+    "difficulty": "Easy",
+    "tags": ["direction-sense", "logical-reasoning"],
+    "serialNumber": 24
+  },
+  {
+    "question": "Find the next number: 3, 6, 12, 24, ?",
+    "options": [
+      { "text": "36", "isCorrect": false },
+      { "text": "42", "isCorrect": false },
+      { "text": "48", "isCorrect": true },
+      { "text": "54", "isCorrect": false }
+    ],
+    "explanation": "Each number is multiplied by 2. Therefore, 24 × 2 = 48.",
+    "category": "Reasoning",
+    "difficulty": "Medium",
+    "tags": ["number-series", "patterns"],
+    "serialNumber": 25
+  },
+  {
+    "question": "Pointing to a man, Ravi says, 'He is the son of my father's only son.' How is the man related to Ravi?",
+    "options": [
+      { "text": "Brother", "isCorrect": false },
+      { "text": "Son", "isCorrect": true },
+      { "text": "Father", "isCorrect": false },
+      { "text": "Uncle", "isCorrect": false }
+    ],
+    "explanation": "Ravi's father's only son is Ravi himself. Therefore, the man is Ravi's son.",
+    "category": "Reasoning",
+    "difficulty": "Medium",
+    "tags": ["blood-relations", "logical-reasoning"],
+    "serialNumber": 26
+  },
+  {
+    "question": "In a class of 40 students, Rohan ranks 12th from the top. What is his rank from the bottom?",
+    "options": [
+      { "text": "28th", "isCorrect": false },
+      { "text": "29th", "isCorrect": true },
+      { "text": "30th", "isCorrect": false },
+      { "text": "31st", "isCorrect": false }
+    ],
+    "explanation": "Rank from bottom = Total students − Rank from top + 1 = 40 − 12 + 1 = 29.",
+    "category": "Reasoning",
+    "difficulty": "Medium",
+    "tags": ["ranking", "logical-reasoning"],
+    "serialNumber": 27
+  },
+  {
+    "question": "Find the missing number: 2, 6, 12, 20, 30, ?",
+    "options": [
+      { "text": "40", "isCorrect": false },
+      { "text": "42", "isCorrect": true },
+      { "text": "44", "isCorrect": false },
+      { "text": "46", "isCorrect": false }
+    ],
+    "explanation": "The pattern is n(n+1): 1×2=2, 2×3=6, 3×4=12, ..., 6×7=42.",
+    "category": "Reasoning",
+    "difficulty": "Hard",
+    "tags": ["number-series", "patterns"],
+    "serialNumber": 28
+  },
+  {
+    "question": "Five people P, Q, R, S and T sit in a row. P is to the left of Q but right of R. S is to the right of Q. Who sits in the middle?",
+    "options": [
+      { "text": "P", "isCorrect": true },
+      { "text": "Q", "isCorrect": false },
+      { "text": "R", "isCorrect": false },
+      { "text": "S", "isCorrect": false }
+    ],
+    "explanation": "The order must be R-P-Q-S-T, so P occupies the middle position.",
+    "category": "Reasoning",
+    "difficulty": "Hard",
+    "tags": ["seating-arrangement", "logical-reasoning"],
+    "serialNumber": 29
+  },
+  {
+    "question": "If all roses are flowers and some flowers fade quickly, which conclusion is definitely true?",
+    "options": [
+      { "text": "All roses fade quickly.", "isCorrect": false },
+      { "text": "Some roses fade quickly.", "isCorrect": false },
+      { "text": "Roses are flowers.", "isCorrect": true },
+      { "text": "No roses fade quickly.", "isCorrect": false }
+    ],
+    "explanation": "The only definite conclusion from the statements is that all roses belong to the category of flowers.",
+    "category": "Reasoning",
+    "difficulty": "Hard",
+    "tags": ["syllogism", "logical-reasoning"],
+    "serialNumber": 30
+  },
+  {
+    "question": "Which data structure follows the LIFO principle?",
+    "options": [
+      { "text": "Queue", "isCorrect": false },
+      { "text": "Stack", "isCorrect": true },
+      { "text": "Array", "isCorrect": false },
+      { "text": "Linked List", "isCorrect": false }
+    ],
+    "explanation": "A stack follows Last In, First Out (LIFO).",
+    "category": "Technical",
+    "difficulty": "Easy",
+    "tags": ["data-structures", "stack", "computer-science"],
+    "serialNumber": 31
+  },
+  {
+    "question": "Which language is primarily used to structure the content of web pages?",
+    "options": [
+      { "text": "HTML", "isCorrect": true },
+      { "text": "Python", "isCorrect": false },
+      { "text": "SQL", "isCorrect": false },
+      { "text": "C++", "isCorrect": false }
+    ],
+    "explanation": "HTML (HyperText Markup Language) is used to structure content on web pages.",
+    "category": "Technical",
+    "difficulty": "Easy",
+    "tags": ["html", "web-development"],
+    "serialNumber": 32
+  },
+  {
+    "question": "Which SQL command is used to retrieve data from a database?",
+    "options": [
+      { "text": "INSERT", "isCorrect": false },
+      { "text": "UPDATE", "isCorrect": false },
+      { "text": "SELECT", "isCorrect": true },
+      { "text": "DELETE", "isCorrect": false }
+    ],
+    "explanation": "The SELECT statement is used to retrieve data from one or more database tables.",
+    "category": "Technical",
+    "difficulty": "Easy",
+    "tags": ["sql", "database"],
+    "serialNumber": 33
+  },
+  {
+    "question": "Which of the following is an operating system?",
+    "options": [
+      { "text": "MySQL", "isCorrect": false },
+      { "text": "Linux", "isCorrect": true },
+      { "text": "Python", "isCorrect": false },
+      { "text": "MongoDB", "isCorrect": false }
+    ],
+    "explanation": "Linux is an operating system used to manage computer hardware and software resources.",
+    "category": "Technical",
+    "difficulty": "Easy",
+    "tags": ["operating-systems", "linux"],
+    "serialNumber": 34
+  },
+  {
+    "question": "What is the average time complexity of binary search on a sorted array?",
+    "options": [
+      { "text": "O(n)", "isCorrect": false },
+      { "text": "O(log n)", "isCorrect": true },
+      { "text": "O(n²)", "isCorrect": false },
+      { "text": "O(1)", "isCorrect": false }
+    ],
+    "explanation": "Binary search repeatedly divides the search space into half, resulting in O(log n) time complexity.",
+    "category": "Technical",
+    "difficulty": "Medium",
+    "tags": ["algorithms", "binary-search", "complexity"],
+    "serialNumber": 35
+  },
+  {
+    "question": "Which OOP concept allows a class to acquire properties and methods from another class?",
+    "options": [
+      { "text": "Encapsulation", "isCorrect": false },
+      { "text": "Polymorphism", "isCorrect": false },
+      { "text": "Inheritance", "isCorrect": true },
+      { "text": "Abstraction", "isCorrect": false }
+    ],
+    "explanation": "Inheritance allows a child class to acquire properties and behaviors from a parent class.",
+    "category": "Technical",
+    "difficulty": "Medium",
+    "tags": ["oops", "inheritance", "programming"],
+    "serialNumber": 36
+  },
+  {
+    "question": "Which HTTP status code indicates that a requested resource was not found?",
+    "options": [
+      { "text": "200", "isCorrect": false },
+      { "text": "301", "isCorrect": false },
+      { "text": "404", "isCorrect": true },
+      { "text": "500", "isCorrect": false }
+    ],
+    "explanation": "HTTP 404 indicates that the requested resource could not be found on the server.",
+    "category": "Technical",
+    "difficulty": "Medium",
+    "tags": ["http", "web", "networking"],
+    "serialNumber": 37
+  },
+  {
+    "question": "What is the worst-case time complexity of QuickSort when the pivot selection is consistently the worst possible?",
+    "options": [
+      { "text": "O(log n)", "isCorrect": false },
+      { "text": "O(n)", "isCorrect": false },
+      { "text": "O(n log n)", "isCorrect": false },
+      { "text": "O(n²)", "isCorrect": true }
+    ],
+    "explanation": "If the pivot repeatedly produces highly unbalanced partitions, QuickSort can take O(n²) time in the worst case.",
+    "category": "Technical",
+    "difficulty": "Hard",
+    "tags": ["algorithms", "quicksort", "complexity"],
+    "serialNumber": 38
+  },
+  {
+    "question": "Which normal form eliminates partial dependency in a relational database?",
+    "options": [
+      { "text": "1NF", "isCorrect": false },
+      { "text": "2NF", "isCorrect": true },
+      { "text": "3NF", "isCorrect": false },
+      { "text": "BCNF", "isCorrect": false }
+    ],
+    "explanation": "Second Normal Form (2NF) eliminates partial dependencies of non-key attributes on part of a composite key.",
+    "category": "Technical",
+    "difficulty": "Hard",
+    "tags": ["dbms", "normalization", "database"],
+    "serialNumber": 39
+  },
+  {
+    "question": "Which mechanism is primarily used to prevent multiple processes from simultaneously accessing a critical section?",
+    "options": [
+      { "text": "Paging", "isCorrect": false },
+      { "text": "Deadlock", "isCorrect": false },
+      { "text": "Synchronization", "isCorrect": true },
+      { "text": "Fragmentation", "isCorrect": false }
+    ],
+    "explanation": "Process synchronization mechanisms such as mutexes and semaphores control access to shared critical sections.",
+    "category": "Technical",
+    "difficulty": "Hard",
+    "tags": ["operating-systems", "synchronization", "concurrency"],
+    "serialNumber": 40
+  }
+]

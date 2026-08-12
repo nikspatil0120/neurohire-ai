@@ -19,14 +19,25 @@ const LoginWithGoogle = () => {
   const [success, setSuccess] = useState("");
   const navigate = useNavigate();
 
+  // Show Admin role only in Sign In mode
+  const availableRoles = isLogin ? roles : roles.filter(r => r !== "Admin");
+
+  // Reset to Candidate if switching to signup with Admin selected
+  const handleToggleMode = (loginMode: boolean) => {
+    setIsLogin(loginMode);
+    if (!loginMode && selectedRole === "Admin") {
+      setSelectedRole("Candidate");
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setSuccess("");
 
     try {
-      // Admin login - hardcoded credentials
-      if (selectedRole === "Admin") {
+      // Admin login - hardcoded credentials (Sign In only)
+      if (selectedRole === "Admin" && isLogin) {
         if (formData.email === "admin@xyz.com" && formData.password === "admin@123") {
           setSuccess("Admin login successful! Redirecting...");
           setTimeout(() => {
@@ -35,6 +46,12 @@ const LoginWithGoogle = () => {
         } else {
           setError("Invalid admin credentials");
         }
+        return;
+      }
+
+      // Block admin signup
+      if (selectedRole === "Admin" && !isLogin) {
+        setError("Admin accounts cannot be created. Admin access is restricted to system administrators only.");
         return;
       }
 
@@ -131,7 +148,7 @@ const LoginWithGoogle = () => {
             {/* Toggle between Login and Signup */}
             <div className="flex gap-2 mb-8">
               <button
-                onClick={() => setIsLogin(true)}
+                onClick={() => handleToggleMode(true)}
                 className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all duration-300 ${
                   isLogin
                     ? "bg-blue-500/20 text-blue-400 border border-blue-500/40"
@@ -141,7 +158,7 @@ const LoginWithGoogle = () => {
                 Sign In
               </button>
               <button
-                onClick={() => setIsLogin(false)}
+                onClick={() => handleToggleMode(false)}
                 className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all duration-300 ${
                   !isLogin
                     ? "bg-blue-500/20 text-blue-400 border border-blue-500/40"
@@ -165,14 +182,14 @@ const LoginWithGoogle = () => {
                 : (selectedRole === "Candidate" 
                   ? "Join the future of hiring (Google sign-up available)" 
                   : selectedRole === "Admin"
-                  ? "Admin registration not available"
+                  ? "Create your admin account"
                   : "Join the future of hiring")
               }
             </p>
 
             {/* Role selector */}
             <div className="flex gap-2 mb-8">
-              {roles.map((role) => (
+              {availableRoles.map((role) => (
                 <button
                   key={role}
                   onClick={() => setSelectedRole(role)}

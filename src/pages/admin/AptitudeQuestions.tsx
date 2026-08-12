@@ -32,7 +32,7 @@ const navItems = [
   { label: "AI Performance", href: "/admin/ai-performance", icon: Brain },
 ];
 
-const API_BASE_URL = "http://localhost:5000/api/aptitude-questions";
+const API_BASE_URL = "http://localhost:8000/api/v1/aptitude-questions";
 
 const AptitudeQuestions = () => {
   const [questions, setQuestions] = useState<AptitudeQuestion[]>([]);

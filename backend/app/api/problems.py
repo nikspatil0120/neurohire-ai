@@ -9,18 +9,30 @@ router = APIRouter(prefix="/problems", tags=["problems"])
 
 def problem_helper(problem) -> dict:
     """Convert MongoDB document to dictionary"""
+    def convert_objectid(obj):
+        """Recursively convert ObjectId to string in nested structures"""
+        if isinstance(obj, ObjectId):
+            return str(obj)
+        elif isinstance(obj, dict):
+            return {k: convert_objectid(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [convert_objectid(item) for item in obj]
+        else:
+            return obj
+    
     return {
         "id": str(problem["_id"]),
-        "title": problem["title"],
-        "difficulty": problem["difficulty"],
-        "tags": problem.get("tags", []),
-        "companies": problem.get("companies", []),
-        "description": problem["description"],
-        "examples": problem.get("examples", []),
-        "constraints": problem.get("constraints", []),
-        "testCases": problem.get("testCases", []),
-        "codeTemplates": problem.get("codeTemplates", {}),
-        "stats": problem.get("stats", {}),
+        "title": problem.get("title", ""),
+        "difficulty": problem.get("difficulty", "Easy"),
+        "tags": convert_objectid(problem.get("tags", [])),
+        "companies": convert_objectid(problem.get("companies", [])),
+        "description": problem.get("description", ""),
+        "examples": convert_objectid(problem.get("examples", [])),
+        "constraints": convert_objectid(problem.get("constraints", [])),
+        "testCases": convert_objectid(problem.get("testCases", [])),
+        "codeTemplates": convert_objectid(problem.get("codeTemplates", {})),
+        "functionSignatures": convert_objectid(problem.get("functionSignatures")),
+        "stats": convert_objectid(problem.get("stats", {})),
         "published": problem.get("published", False),
         "createdAt": problem.get("createdAt"),
         "updatedAt": problem.get("updatedAt")
@@ -30,15 +42,27 @@ def problem_helper(problem) -> dict:
 async def get_all_problems(published_only: Optional[bool] = None):
     """Get all problems (admin) or only published problems (candidates)"""
     try:
+        from ..core.database import mongo_db
+        
+        if mongo_db is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Database not available"
+            )
+        
+        problems_coll = mongo_db["problems"]
+        
         query = {}
         if published_only:
             query["published"] = True
         
         problems = []
-        async for problem in database.problems_collection.find(query):
+        async for problem in problems_coll.find(query):
             problems.append(problem_helper(problem))
         
         return problems
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -49,13 +73,16 @@ async def get_all_problems(published_only: Optional[bool] = None):
 async def get_problem(problem_id: str):
     """Get a single problem by ID"""
     try:
+        from ..core.database import mongo_db
+        
         if not ObjectId.is_valid(problem_id):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid problem ID"
             )
         
-        problem = await database.problems_collection.find_one({"_id": ObjectId(problem_id)})
+        problems_coll = mongo_db["problems"]
+        problem = await problems_coll.find_one({"_id": ObjectId(problem_id)})
         if not problem:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -75,12 +102,15 @@ async def get_problem(problem_id: str):
 async def create_problem(problem: ProblemCreate):
     """Create a new problem (admin only)"""
     try:
+        from ..core.database import mongo_db
+        
+        problems_coll = mongo_db["problems"]
         problem_dict = problem.dict()
         problem_dict["createdAt"] = datetime.utcnow()
         problem_dict["updatedAt"] = datetime.utcnow()
         
-        result = await database.problems_collection.insert_one(problem_dict)
-        created_problem = await database.problems_collection.find_one({"_id": result.inserted_id})
+        result = await problems_coll.insert_one(problem_dict)
+        created_problem = await problems_coll.find_one({"_id": result.inserted_id})
         
         return problem_helper(created_problem)
     except Exception as e:

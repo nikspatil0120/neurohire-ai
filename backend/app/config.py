@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings
 from typing import List
 import os
+import json
 
 class Settings(BaseSettings):
     # App settings
@@ -19,15 +20,9 @@ class Settings(BaseSettings):
     MONGODB_DB: str = "neurohire"
     REDIS_URL: str = "redis://localhost:6379"
     
-    # CORS
-    ALLOWED_ORIGINS: List[str] = [
-        "http://localhost:3000", 
-        "http://localhost:5173",
-        "http://127.0.0.1:3000",
-        "http://192.168.56.1:3000",
-        "http://192.168.56.1:5173"
-    ]
-    ALLOWED_HOSTS: List[str] = ["*"]  # Allow all hosts for development
+    # CORS - will be parsed from .env
+    ALLOWED_ORIGINS: str = '["http://localhost:3000","http://localhost:5173"]'
+    ALLOWED_HOSTS: str = '["*"]'
     
     # File storage
     STORAGE_PATH: str = "storage"
@@ -44,5 +39,21 @@ class Settings(BaseSettings):
     
     class Config:
         env_file = ".env"
+    
+    @property
+    def allowed_origins_list(self) -> List[str]:
+        """Parse ALLOWED_ORIGINS from JSON string"""
+        try:
+            return json.loads(self.ALLOWED_ORIGINS)
+        except:
+            return ["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:5173"]
+    
+    @property
+    def allowed_hosts_list(self) -> List[str]:
+        """Parse ALLOWED_HOSTS from JSON string"""
+        try:
+            return json.loads(self.ALLOWED_HOSTS)
+        except:
+            return ["*"]
 
 settings = Settings()

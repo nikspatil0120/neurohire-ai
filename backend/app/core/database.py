@@ -50,14 +50,27 @@ async def init_db():
         # Initialize MongoDB
         if settings.MONGODB_URL:
             mongo_client = AsyncIOMotorClient(settings.MONGODB_URL)
+            # IMPORTANT: Always use settings.MONGODB_DB, not the one in URL
             mongo_db = mongo_client[settings.MONGODB_DB]
             
-            # Initialize collections
+            # Log which database we're using
+            logger.info(f"MongoDB connected to database: {settings.MONGODB_DB}")
+            
+            # Initialize collections with global scope
             users_collection = mongo_db["users"]
             interviews_collection = mongo_db["interviews"]
             jobs_collection = mongo_db["jobs"]
             questions_collection = mongo_db["questions"]
             problems_collection = mongo_db["problems"]
+            
+            # Update the global variables in this module
+            import sys
+            current_module = sys.modules[__name__]
+            current_module.users_collection = users_collection
+            current_module.interviews_collection = interviews_collection
+            current_module.jobs_collection = jobs_collection
+            current_module.questions_collection = questions_collection
+            current_module.problems_collection = problems_collection
             
             logger.info("MongoDB connected successfully")
         

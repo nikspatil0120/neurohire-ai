@@ -1,6 +1,6 @@
 // API configuration and helper functions
-// Temporarily hardcoded to fix connection issues
-const API_BASE_URL = "http://localhost:5000/api";
+// Backend runs on port 8000
+const API_BASE_URL = "http://localhost:8000/api/v1";
 
 class ApiError extends Error {
   constructor(public status: number, message: string, public data?: any) {
@@ -62,7 +62,12 @@ export const api = {
   register: (userData: { name: string; email: string; password: string; role: string }) =>
     fetchApi("/auth/register", {
       method: "POST",
-      body: JSON.stringify(userData),
+      body: JSON.stringify({
+        full_name: userData.name,
+        email: userData.email,
+        password: userData.password,
+        role: userData.role
+      }),
     }),
 
   login: (credentials: { email: string; password: string }) =>

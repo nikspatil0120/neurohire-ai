@@ -18,12 +18,17 @@ def check_python_version():
 
 def check_dependencies():
     """Check if required dependencies are installed"""
-    required_packages = [
+    # Core packages required to run the server
+    core_packages = [
         "fastapi",
         "uvicorn",
+        "pymongo",
+    ]
+    
+    # Optional packages (AI features run in mock mode if missing)
+    optional_packages = [
         "sqlalchemy",
         "asyncpg",
-        "pymongo",
         "redis",
         "whisper",
         "opencv-python",
@@ -32,20 +37,35 @@ def check_dependencies():
         "sentence-transformers"
     ]
     
-    missing_packages = []
+    missing_core = []
+    missing_optional = []
     
-    for package in required_packages:
+    print("Core packages:")
+    for package in core_packages:
         try:
             __import__(package.replace("-", "_"))
-            print(f"✅ {package}")
+            print(f"  ✅ {package}")
         except ImportError:
-            missing_packages.append(package)
-            print(f"❌ {package}")
+            missing_core.append(package)
+            print(f"  ❌ {package}")
     
-    if missing_packages:
-        print(f"\n❌ Missing packages: {', '.join(missing_packages)}")
-        print("Run: pip install -r requirements.txt")
+    print("\nOptional packages (AI features):")
+    for package in optional_packages:
+        try:
+            __import__(package.replace("-", "_"))
+            print(f"  ✅ {package}")
+        except ImportError:
+            missing_optional.append(package)
+            print(f"  ⚠️  {package} (will use mock mode)")
+    
+    if missing_core:
+        print(f"\n❌ Missing REQUIRED packages: {', '.join(missing_core)}")
+        print("Run: pip install fastapi uvicorn motor pymongo")
         return False
+    
+    if missing_optional:
+        print(f"\n⚠️  Optional AI packages missing - AI features will run in MOCK mode")
+        print("This is OK for basic testing and development!")
     
     return True
 
@@ -74,15 +94,11 @@ def check_environment():
 
 def check_databases():
     """Check database connections"""
-    print("\n🔍 Checking database connections...")
-    
-    # This would check actual database connections
-    # For now, just show what needs to be running
-    print("Make sure the following services are running:")
-    print("  - PostgreSQL (default: localhost:5432)")
-    print("  - MongoDB (default: localhost:27017)")
-    print("  - Redis (default: localhost:6379)")
-    print("\nYou can start them with: docker-compose up -d")
+    print("\n🔍 Database Information:")
+    print("  MongoDB: Required (check .env for MONGODB_URL)")
+    print("  PostgreSQL: Optional (not needed if using MongoDB only)")
+    print("  Redis: Optional (caching will be disabled if not available)")
+    print("\n💡 The backend will run with MongoDB only!")
 
 def start_server(host="0.0.0.0", port=8000, reload=True):
     """Start the FastAPI server"""

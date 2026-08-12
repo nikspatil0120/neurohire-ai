@@ -36,6 +36,8 @@ import AdminDashboard from "./pages/admin/Dashboard";
 import SystemMonitoring from "./pages/admin/SystemMonitoring";
 import DSAProblems from "./pages/admin/DSAProblems";
 import AptitudeQuestions from "./pages/admin/AptitudeQuestions";
+import Recruiters from "./pages/admin/Recruiters";
+import Candidates from "./pages/admin/Candidates";
 
 const queryClient = new QueryClient();
 
@@ -73,6 +75,8 @@ const App = () => (
                 {/* Admin */}
                 <Route path="/admin/dashboard" element={<AdminDashboard />} />
                 <Route path="/admin/monitoring" element={<SystemMonitoring />} />
+                <Route path="/admin/recruiters" element={<Recruiters />} />
+                <Route path="/admin/candidates" element={<Candidates />} />
                 <Route path="/admin/dsa-problems" element={<DSAProblems />} />
                 <Route path="/admin/aptitude-questions" element={<AptitudeQuestions />} />
 
