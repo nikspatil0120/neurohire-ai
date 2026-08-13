@@ -43,7 +43,7 @@ const CandidateDashboard = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted-foreground uppercase tracking-wider">Upcoming Interviews</p>
-                <p className="text-3xl font-display mt-1 text-foreground">3</p>
+                <p className="text-3xl font-display mt-1 text-foreground">0</p>
               </div>
               <div className="w-12 h-12 rounded-full bg-secondary/10 flex items-center justify-center">
                 <Calendar className="w-5 h-5 text-secondary" />
@@ -55,7 +55,7 @@ const CandidateDashboard = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted-foreground uppercase tracking-wider">Overall Score</p>
-                <p className="text-3xl font-display mt-1 gradient-text">85</p>
+                <p className="text-3xl font-display mt-1 gradient-text">0</p>
               </div>
               <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
                 <TrendingUp className="w-5 h-5 text-primary" />
@@ -65,8 +65,8 @@ const CandidateDashboard = () => {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* AI Recommendation */}
-          <GlassCard variant="holographic" className="lg:col-span-2">
+          {/* AI Recommendation - Coming Soon */}
+          {/* <GlassCard variant="holographic" className="lg:col-span-2">
             <div className="flex items-start gap-4">
               <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-primary to-secondary flex items-center justify-center flex-shrink-0">
                 <Brain className="w-5 h-5 text-primary-foreground" />
@@ -80,7 +80,7 @@ const CandidateDashboard = () => {
                 </p>
               </div>
             </div>
-          </GlassCard>
+          </GlassCard> */}
 
           {/* Quick Actions */}
           <GlassCard variant="neon">

@@ -20,9 +20,10 @@ interface AptitudeQuestion {
   tags: string[];
 }
 
-const API_BASE_URL = "http://localhost:5000/api/aptitude-questions";
+const API_BASE_URL = "http://localhost:8000/api/v1/aptitude-questions";
 
 const AptitudeTest = () => {
+  const [allQuestions, setAllQuestions] = useState<AptitudeQuestion[]>([]);
   const [questions, setQuestions] = useState<AptitudeQuestion[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
@@ -32,19 +33,24 @@ const AptitudeTest = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [timeLeft, setTimeLeft] = useState(30 * 60); // 30 minutes in seconds
   const [testCompleted, setTestCompleted] = useState(false);
+  const [testStarted, setTestStarted] = useState(false);
+  
+  // Filter states
+  const [filterCategory, setFilterCategory] = useState<"All" | "Verbal" | "Quantitative" | "Reasoning" | "Technical">("All");
+  const [filterDifficulty, setFilterDifficulty] = useState<"All" | "Easy" | "Medium" | "Hard">("All");
 
   useEffect(() => {
     loadQuestions();
   }, []);
 
   useEffect(() => {
-    if (timeLeft > 0 && !testCompleted) {
+    if (timeLeft > 0 && !testCompleted && testStarted) {
       const timer = setInterval(() => setTimeLeft(timeLeft - 1), 1000);
       return () => clearInterval(timer);
-    } else if (timeLeft === 0 && !testCompleted) {
+    } else if (timeLeft === 0 && !testCompleted && testStarted) {
       completeTest();
     }
-  }, [timeLeft, testCompleted]);
+  }, [timeLeft, testCompleted, testStarted]);
 
   const loadQuestions = async () => {
     setIsLoading(true);
@@ -52,13 +58,42 @@ const AptitudeTest = () => {
       const response = await fetch(API_BASE_URL);
       if (response.ok) {
         const data = await response.json();
-        setQuestions(data);
+        setAllQuestions(data);
+      } else {
+        console.error('Failed to fetch questions');
       }
     } catch (error) {
       console.error('Error loading questions:', error);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const applyFilters = () => {
+    let filtered = [...allQuestions];
+    
+    if (filterCategory !== "All") {
+      filtered = filtered.filter(q => q.category === filterCategory);
+    }
+    
+    if (filterDifficulty !== "All") {
+      filtered = filtered.filter(q => q.difficulty === filterDifficulty);
+    }
+    
+    return filtered;
+  };
+
+  const handleStartTest = () => {
+    const filteredQuestions = applyFilters();
+    
+    if (filteredQuestions.length === 0) {
+      alert('No questions match the selected filters. Please adjust your filters.');
+      return;
+    }
+    
+    setQuestions(filteredQuestions);
+    setTestStarted(true);
+    setTimeLeft(30 * 60);
   };
 
   const formatTime = (seconds: number) => {
@@ -113,6 +148,9 @@ const AptitudeTest = () => {
     setAnswers([]);
     setTimeLeft(30 * 60);
     setTestCompleted(false);
+    setTestStarted(false);
+    setFilterCategory("All");
+    setFilterDifficulty("All");
   };
 
   if (isLoading) {
@@ -126,7 +164,7 @@ const AptitudeTest = () => {
     );
   }
 
-  if (questions.length === 0) {
+  if (allQuestions.length === 0) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
@@ -135,6 +173,96 @@ const AptitudeTest = () => {
           <Link to="/candidate/practice" className="text-primary hover:underline">
             ← Back to Practice
           </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // Filter selection screen (before test starts)
+  if (!testStarted && !testCompleted) {
+    const filteredCount = applyFilters().length;
+    
+    return (
+      <div className="min-h-screen bg-background p-6">
+        <div className="max-w-2xl mx-auto">
+          {/* Header */}
+          <div className="flex items-center gap-3 mb-8">
+            <Link to="/candidate/practice" className="text-muted-foreground hover:text-foreground">
+              <ArrowRight className="w-5 h-5 rotate-180" />
+            </Link>
+            <Brain className="w-6 h-6 text-primary" />
+            <span className="font-display text-sm tracking-widest text-foreground">APTITUDE TEST</span>
+          </div>
+
+          <GlassCard variant="neon">
+            <h2 className="text-2xl font-display text-foreground mb-2">Configure Your Test</h2>
+            <p className="text-sm text-muted-foreground mb-6">
+              Select category and difficulty level for your aptitude test
+            </p>
+
+            {/* Filters */}
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="text-sm font-medium text-foreground mb-2 block">Category</label>
+                <select
+                  value={filterCategory}
+                  onChange={(e) => setFilterCategory(e.target.value as any)}
+                  className="w-full px-4 py-3 bg-muted/30 border border-border/50 rounded-lg text-foreground focus:outline-none focus:border-primary/50 transition-colors"
+                >
+                  <option value="All">All Categories</option>
+                  <option value="Verbal">Verbal</option>
+                  <option value="Quantitative">Quantitative</option>
+                  <option value="Reasoning">Reasoning</option>
+                  <option value="Technical">Technical</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-foreground mb-2 block">Difficulty</label>
+                <select
+                  value={filterDifficulty}
+                  onChange={(e) => setFilterDifficulty(e.target.value as any)}
+                  className="w-full px-4 py-3 bg-muted/30 border border-border/50 rounded-lg text-foreground focus:outline-none focus:border-primary/50 transition-colors"
+                >
+                  <option value="All">All Levels</option>
+                  <option value="Easy">Easy</option>
+                  <option value="Medium">Medium</option>
+                  <option value="Hard">Hard</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Test Info */}
+            <div className="grid grid-cols-3 gap-4 mb-6 p-4 bg-muted/20 rounded-lg">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-primary">{filteredCount}</div>
+                <div className="text-xs text-muted-foreground">Questions</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-foreground">30</div>
+                <div className="text-xs text-muted-foreground">Minutes</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-foreground">Auto</div>
+                <div className="text-xs text-muted-foreground">Submit</div>
+              </div>
+            </div>
+
+            {/* Start Button */}
+            <button
+              onClick={handleStartTest}
+              disabled={filteredCount === 0}
+              className="w-full py-3 rounded-lg bg-gradient-to-r from-primary to-neon-cyan text-primary-foreground font-semibold text-sm tracking-wide hover:shadow-[0_0_30px_hsl(185_100%_50%/0.4)] transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              Start Test <ArrowRight className="w-4 h-4" />
+            </button>
+
+            {filteredCount === 0 && (
+              <p className="text-sm text-red-500 text-center mt-3">
+                No questions available for selected filters
+              </p>
+            )}
+          </GlassCard>
         </div>
       </div>
     );
