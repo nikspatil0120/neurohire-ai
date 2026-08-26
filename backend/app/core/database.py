@@ -48,37 +48,51 @@ async def init_db():
     
     try:
         # Initialize MongoDB
-        if settings.MONGODB_URL:
-            mongo_client = AsyncIOMotorClient(settings.MONGODB_URL)
-            # IMPORTANT: Always use settings.MONGODB_DB, not the one in URL
-            mongo_db = mongo_client[settings.MONGODB_DB]
-            
-            # Log which database we're using
-            logger.info(f"MongoDB connected to database: {settings.MONGODB_DB}")
-            
-            # Initialize collections with global scope
-            users_collection = mongo_db["users"]
-            interviews_collection = mongo_db["interviews"]
-            jobs_collection = mongo_db["jobs"]
-            questions_collection = mongo_db["questions"]
-            problems_collection = mongo_db["problems"]
-            
-            # Update the global variables in this module
-            import sys
-            current_module = sys.modules[__name__]
-            current_module.users_collection = users_collection
-            current_module.interviews_collection = interviews_collection
-            current_module.jobs_collection = jobs_collection
-            current_module.questions_collection = questions_collection
-            current_module.problems_collection = problems_collection
-            
-            logger.info("MongoDB connected successfully")
+        logger.info(f"Attempting MongoDB connection to: '{settings.MONGODB_URL}'")
+        logger.info(f"MONGODB_DB: '{settings.MONGODB_DB}'")
+        logger.info(f"DEBUG mode: {settings.DEBUG}")
+        
+        if settings.MONGODB_URL and settings.MONGODB_URL.strip():
+            try:
+                mongo_client = AsyncIOMotorClient(settings.MONGODB_URL, serverSelectionTimeoutMS=5000)
+                # Test the connection
+                await mongo_client.admin.command('ping')
+                # IMPORTANT: Always use settings.MONGODB_DB, not the one in URL
+                mongo_db = mongo_client[settings.MONGODB_DB]
+                
+                # Log which database we're using
+                logger.info(f"MongoDB connected to database: {settings.MONGODB_DB}")
+                
+                # Initialize collections with global scope
+                users_collection = mongo_db["users"]
+                interviews_collection = mongo_db["interviews"]
+                jobs_collection = mongo_db["jobs"]
+                questions_collection = mongo_db["questions"]
+                problems_collection = mongo_db["problems"]
+                
+                # Update the global variables in this module
+                import sys
+                current_module = sys.modules[__name__]
+                current_module.users_collection = users_collection
+                current_module.interviews_collection = interviews_collection
+                current_module.jobs_collection = jobs_collection
+                current_module.questions_collection = questions_collection
+                current_module.problems_collection = problems_collection
+                
+                logger.info("MongoDB connected successfully")
+            except Exception as mongo_error:
+                logger.error(f"MongoDB connection failed: {type(mongo_error).__name__}: {mongo_error}")
+                raise
         
         # Initialize Redis
         if settings.REDIS_URL:
-            redis_client = redis.from_url(settings.REDIS_URL)
-            await redis_client.ping()
-            logger.info("Redis connected successfully")
+            try:
+                redis_client = redis.from_url(settings.REDIS_URL)
+                await redis_client.ping()
+                logger.info("Redis connected successfully")
+            except Exception as redis_error:
+                logger.warning(f"Redis connection failed: {type(redis_error).__name__}: {redis_error}")
+                logger.info("Continuing without Redis")
         
         # Create PostgreSQL tables
         if engine:
@@ -120,6 +134,7 @@ async def get_db():
 
 def get_mongo_db():
     """Get MongoDB database"""
+    logger.info(f"get_mongo_db called, mongo_db is: {mongo_db is not None}")
     return mongo_db
 
 def get_redis():

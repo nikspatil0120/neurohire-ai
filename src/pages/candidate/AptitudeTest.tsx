@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import GlassCard from "@/components/GlassCard";
-import { Clock, ArrowRight, Brain, CheckCircle, XCircle, RotateCcw } from "lucide-react";
+import { Clock, ArrowRight, Brain, CheckCircle, XCircle, RotateCcw, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Option {

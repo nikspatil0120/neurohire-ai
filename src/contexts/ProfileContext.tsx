@@ -2,34 +2,65 @@ import React, { createContext, useContext, useState, ReactNode, useEffect } from
 import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 
-interface ProfileData {
+interface Education {
+  institutionName: string;
+  degree: string;
+  startYear: string;
+  endYear: string;
+  percentage?: string;
+  grade?: string;
+  cgpa?: string;
+  cgpaScale?: string;
+}
+
+interface Experience {
+  startDate: string;
+  endDate?: string;
+  currentlyWorking: boolean;
+  companyName: string;
+  jobRole: string;
+  description: string;
+}
+
+interface Project {
+  projectTitle: string;
+  techStack: string[];
+  description: string;
+}
+
+interface Achievement {
+  title: string;
+  description: string;
+  date?: string;
+}
+
+interface AdditionalSection {
+  sectionName: string;
+  content: any;
+}
+
+export interface ProfileData {
   fullName: string;
   email: string;
   phone: string;
-  location: string;
-  address: string;
+  country: string;
   dateOfBirth: string;
-  resume: File | null;
-  resumeInfo: {
-    filename: string;
-    originalName: string;
-    size: number;
-    uploadedAt: string;
-  } | null;
-  skills: string;
-  experience: string;
-  education: string;
-  bio: string;
+  gender: string;
+  address: string;
+  education: Education[];
+  experience: Experience[];
+  projects: Project[];
+  skills: string[];
+  achievements: Achievement[];
+  additionalSections: AdditionalSection[];
 }
 
 interface ProfileContextType {
   profileData: ProfileData;
   profileCompletion: number;
   isLoading: boolean;
-  updateProfile: (field: keyof ProfileData, value: string | File) => Promise<void>;
-  setResume: (file: File | null) => void;
+  updateProfile: (field: keyof ProfileData, value: string | File | any) => Promise<void>;
   saveProfile: () => Promise<void>;
-  uploadResume: (file: File) => Promise<void>;
   setProfileData: React.Dispatch<React.SetStateAction<ProfileData>>;
 }
 
@@ -43,72 +74,125 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
     fullName: '',
     email: '',
     phone: '',
-    location: '',
-    address: '',
+    country: '',
     dateOfBirth: '',
-    resume: null,
-    resumeInfo: null,
-    skills: '',
-    experience: '',
-    education: '',
-    bio: ''
+    gender: '',
+    address: '',
+    education: [],
+    experience: [],
+    projects: [],
+    skills: [],
+    achievements: [],
+    additionalSections: []
   });
 
   const [profileCompletion, setProfileCompletion] = useState(0);
 
   // Load user profile data when user is authenticated
   useEffect(() => {
-    if (isAuthenticated && user) {
-      setProfileData({
-        fullName: user.name || '',
-        email: user.email || '',
-        phone: user.profile?.phone || '',
-        location: '', // Not used in completion calculation
-        address: user.profile?.address || '',
-        dateOfBirth: user.profile?.dateOfBirth ? new Date(user.profile.dateOfBirth).toISOString().split('T')[0] : '',
-        resume: null, // File objects can't be restored from API
-        resumeInfo: user.profile?.resume ? {
-          filename: user.profile.resume.filename,
-          originalName: user.profile.resume.originalName,
-          size: user.profile.resume.size,
-          uploadedAt: user.profile.resume.uploadedAt
-        } : null,
-        skills: '', // Not used in completion calculation
-        experience: '', // Not used in completion calculation
-        education: '', // Not used in completion calculation
-        bio: '' // Not used in completion calculation
-      });
-    }
+    const loadProfileData = async () => {
+      if (isAuthenticated && user) {
+        try {
+          const userEmail = user.email || localStorage.getItem('userEmail') || '';
+          console.log('[ProfileContext] Loading profile data for:', userEmail);
+          const response = await api.getProfileData(userEmail);
+          console.log('[ProfileContext] API response:', response);
+          
+          if (response.success && response.data) {
+            console.log('[ProfileContext] Setting profile data from API:', response.data);
+            setProfileData({
+              fullName: response.data.fullName || '',
+              email: response.data.email || '',
+              phone: response.data.phone || '',
+              country: response.data.country || '',
+              dateOfBirth: response.data.dateOfBirth || '',
+              gender: response.data.gender || '',
+              address: response.data.address || '',
+              education: response.data.education || [],
+              experience: response.data.experience || [],
+              projects: response.data.projects || [],
+              skills: response.data.skills || [],
+              achievements: response.data.achievements || [],
+              additionalSections: response.data.additionalSections || []
+            });
+          } else {
+            console.log('[ProfileContext] No data in response, using fallback');
+            // Fall back to user data from auth
+            setProfileData({
+              fullName: user.name || '',
+              email: user.email || '',
+              phone: user.profile?.phone || '',
+              country: user.profile?.country || '',
+              dateOfBirth: user.profile?.dateOfBirth ? new Date(user.profile.dateOfBirth).toISOString().split('T')[0] : '',
+              gender: user.profile?.gender || '',
+              address: user.profile?.address || '',
+              education: user.profile?.education || [],
+              experience: user.profile?.experience || [],
+              projects: user.profile?.projects || [],
+              skills: user.profile?.skills || [],
+              achievements: user.profile?.achievements || [],
+              additionalSections: user.profile?.additionalSections || []
+            });
+          }
+        } catch (error) {
+          console.error('[ProfileContext] Error loading profile data:', error);
+          // Fall back to user data from auth
+          setProfileData({
+            fullName: user.name || '',
+            email: user.email || '',
+            phone: user.profile?.phone || '',
+            country: user.profile?.country || '',
+            dateOfBirth: user.profile?.dateOfBirth ? new Date(user.profile.dateOfBirth).toISOString().split('T')[0] : '',
+            gender: user.profile?.gender || '',
+            address: user.profile?.address || '',
+            education: user.profile?.education || [],
+            experience: user.profile?.experience || [],
+            projects: user.profile?.projects || [],
+            skills: user.profile?.skills || [],
+            achievements: user.profile?.achievements || [],
+            additionalSections: user.profile?.additionalSections || []
+          });
+        }
+      }
+    };
+    
+    loadProfileData();
   }, [user, isAuthenticated]);
 
   // Calculate profile completion percentage
   useEffect(() => {
-    const fields = [
+    const mandatoryFields = [
       profileData.fullName,
       profileData.email,
       profileData.phone,
+      profileData.country,
+      profileData.dateOfBirth,
+      profileData.gender,
       profileData.address,
-      profileData.dateOfBirth
     ];
     
-    let filledFieldsCount = fields.filter(field => {
+    let filledFieldsCount = mandatoryFields.filter(field => {
       if (field === null || field === undefined) return false;
       return field.toString().trim() !== '';
     }).length;
     
-    // Add resume to completion if it exists
-    const resumeExists = profileData.resume || profileData.resumeInfo;
-    if (resumeExists) {
+    // Add education (at least one required)
+    if (profileData.education.length > 0 && profileData.education[0].institutionName) {
       filledFieldsCount += 1;
     }
     
-    const totalFields = fields.length + 1; // +1 for resume
+    // Add skills (at least one required)
+    if (profileData.skills.length > 0) {
+      filledFieldsCount += 1;
+    }
+    
+    const totalFields = mandatoryFields.length + 2; // +1 for education, +1 for skills
     const completion = Math.round((filledFieldsCount / totalFields) * 100);
     
     setProfileCompletion(completion);
   }, [profileData, user]);
 
-  const updateProfile = async (field: keyof ProfileData, value: string | File) => {
+  const updateProfile = async (field: keyof ProfileData, value: string | File | any) => {
     setProfileData(prev => ({
       ...prev,
       [field]: value
@@ -139,8 +223,8 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
       case 'phone':
         profileUpdate.profile.phone = value;
         break;
-      case 'location':
-        profileUpdate.profile.location = value;
+      case 'country':
+        profileUpdate.profile.country = value;
         break;
       case 'address':
         profileUpdate.profile.address = value;
@@ -148,17 +232,26 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
       case 'dateOfBirth':
         profileUpdate.profile.dateOfBirth = value;
         break;
-      case 'skills':
-        profileUpdate.profile.skills = value.split(',').map(s => s.trim()).filter(s => s);
+      case 'gender':
+        profileUpdate.profile.gender = value;
         break;
-      case 'experience':
-        profileUpdate.profile.experience = value;
+      case 'skills':
+        // Skills is now an array, handle separately
         break;
       case 'education':
-        profileUpdate.profile.education = value;
+        // Education is now an array, handle separately
         break;
-      case 'bio':
-        profileUpdate.profile.bio = value;
+      case 'experience':
+        // Experience is now an array, handle separately
+        break;
+      case 'projects':
+        // Projects is now an array, handle separately
+        break;
+      case 'achievements':
+        // Achievements is now an array, handle separately
+        break;
+      case 'additionalSections':
+        // AdditionalSections is now an array, handle separately
         break;
     }
 
@@ -171,17 +264,19 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
     setIsLoading(true);
     try {
       const profileUpdate = {
-        name: profileData.fullName,
-        profile: {
-          phone: profileData.phone,
-          location: profileData.location,
-          address: profileData.address,
-          dateOfBirth: profileData.dateOfBirth,
-          skills: profileData.skills.split(',').map(s => s.trim()).filter(s => s),
-          experience: profileData.experience,
-          education: profileData.education,
-          bio: profileData.bio
-        }
+        fullName: profileData.fullName,
+        email: profileData.email,
+        phone: profileData.phone,
+        country: profileData.country,
+        dateOfBirth: profileData.dateOfBirth,
+        gender: profileData.gender,
+        address: profileData.address,
+        education: profileData.education,
+        experience: profileData.experience,
+        projects: profileData.projects,
+        skills: profileData.skills,
+        achievements: profileData.achievements,
+        additionalSections: profileData.additionalSections
       };
 
       await api.updateProfile(profileUpdate);
@@ -193,48 +288,6 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const uploadResume = async (file: File) => {
-    if (!isAuthenticated) {
-      throw new Error('You must be logged in to upload a resume');
-    }
-
-    setIsLoading(true);
-    try {
-      const formData = new FormData();
-      formData.append('resume', file);
-
-      const response = await api.uploadResume(formData);
-      
-      if (response.success) {
-        // Update local state with both file and resume info
-        setProfileData(prev => ({
-          ...prev,
-          resume: file,
-          resumeInfo: {
-            filename: response.data.resume.filename,
-            originalName: response.data.resume.originalName,
-            size: response.data.resume.size,
-            uploadedAt: response.data.resume.uploadedAt
-          }
-        }));
-      } else {
-        throw new Error(response.message || 'Upload failed');
-      }
-    } catch (error: any) {
-      console.error('Error uploading resume:', error);
-      throw new Error(error.message || 'Failed to upload resume');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const setResume = (file: File | null) => {
-    setProfileData(prev => ({
-      ...prev,
-      resume: file
-    }));
-  };
-
   return (
     <ProfileContext.Provider
       value={{
@@ -242,9 +295,7 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
         profileCompletion,
         isLoading,
         updateProfile,
-        setResume,
         saveProfile,
-        uploadResume,
         setProfileData
       }}
     >

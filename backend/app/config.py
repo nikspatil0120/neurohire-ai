@@ -16,9 +16,9 @@ class Settings(BaseSettings):
     
     # Database
     POSTGRES_URL: str = "postgresql://postgres:password@localhost:5432/neurohire"
-    MONGODB_URL: str = "mongodb://localhost:27017"
+    MONGODB_URL: str = "mongodb://127.0.0.1:27017"
     MONGODB_DB: str = "neurohire"
-    REDIS_URL: str = "redis://localhost:6379"
+    REDIS_URL: str = "redis://127.0.0.1:6379"
     
     # CORS - will be parsed from .env
     ALLOWED_ORIGINS: str = '["http://localhost:3000","http://localhost:5173"]'
@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     
     class Config:
         env_file = ".env"
+        env_file_encoding = "utf-8"
+        extra = "ignore"
     
     @property
     def allowed_origins_list(self) -> List[str]:

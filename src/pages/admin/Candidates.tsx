@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import GlassCard from "@/components/GlassCard";
-import { LayoutDashboard, Shield, Users, Building2, Brain, Code, BookOpen, Mail, Calendar, CheckCircle, XCircle } from "lucide-react";
+import { LayoutDashboard, Shield, Users, Building2, Brain, Code, BookOpen, Mail, Calendar, CheckCircle, XCircle, Bug } from "lucide-react";
 
 const navItems = [
   { label: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
@@ -26,6 +26,7 @@ interface Candidate {
 const Candidates = () => {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [debugInfo, setDebugInfo] = useState<string | null>(null);
 
   useEffect(() => {
     fetchCandidates();
@@ -38,10 +39,13 @@ const Candidates = () => {
         const data = await response.json();
         setCandidates(data);
       } else {
-        console.error('Failed to fetch candidates');
+        const errorText = await response.text();
+        console.error('Failed to fetch candidates:', response.status, errorText);
+        setCandidates([]);
       }
     } catch (error) {
       console.error('Error fetching candidates:', error);
+      setCandidates([]);
     } finally {
       setIsLoading(false);
     }
@@ -58,6 +62,31 @@ const Candidates = () => {
     });
   };
 
+  const debugFetch = async () => {
+    setDebugInfo("Debugging...");
+    try {
+      const response = await fetch('http://localhost:8000/api/v1/users/candidates');
+      const status = response.status;
+      const statusText = response.statusText;
+      const headers = Object.fromEntries(response.headers.entries());
+      
+      let body;
+      try {
+        body = await response.json();
+      } catch {
+        body = await response.text();
+      }
+      
+      setDebugInfo(
+        `Status: ${status} ${statusText}\n` +
+        `Headers: ${JSON.stringify(headers, null, 2)}\n` +
+        `Body: ${JSON.stringify(body, null, 2)}`
+      );
+    } catch (error) {
+      setDebugInfo(`Error: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
   return (
     <DashboardLayout navItems={navItems} title="CANDIDATES MANAGEMENT">
       <div className="space-y-6">
@@ -69,11 +98,38 @@ const Candidates = () => {
               Manage and monitor candidate accounts
             </p>
           </div>
-          <div className="px-4 py-2 bg-primary/10 rounded-lg">
-            <p className="text-sm text-muted-foreground">Total Candidates</p>
-            <p className="text-2xl font-display text-primary">{candidates.length}</p>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={debugFetch}
+              className="px-4 py-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-center gap-2 text-yellow-500 hover:bg-yellow-500/20 transition-colors"
+            >
+              <Bug className="w-4 h-4" />
+              Debug
+            </button>
+            <div className="px-4 py-2 bg-primary/10 rounded-lg">
+              <p className="text-sm text-muted-foreground">Total Candidates</p>
+              <p className="text-2xl font-display text-primary">{candidates.length}</p>
+            </div>
           </div>
         </div>
+
+        {/* Debug Info */}
+        {debugInfo && (
+          <GlassCard variant="neon" className="p-4">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-sm font-semibold text-foreground">Debug Information</h4>
+              <button
+                onClick={() => setDebugInfo(null)}
+                className="text-xs text-muted-foreground hover:text-foreground"
+              >
+                Close
+              </button>
+            </div>
+            <pre className="text-xs text-muted-foreground whitespace-pre-wrap bg-muted/30 p-3 rounded overflow-auto max-h-96">
+              {debugInfo}
+            </pre>
+          </GlassCard>
+        )}
 
         {/* Candidates List */}
         <GlassCard variant="neon">

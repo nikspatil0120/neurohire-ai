@@ -52,8 +52,14 @@ const Login = () => {
 
   const handleGoogleSuccess = async (credentialResponse: any) => {
     try {
-      await loginWithGoogle(credentialResponse.credential, selectedRole.toLowerCase() as any);
-      navigate(`/${selectedRole.toLowerCase()}/dashboard`);
+      const result = await loginWithGoogle(credentialResponse.credential, selectedRole.toLowerCase() as any);
+      
+      // Check if onboarding is needed for candidates
+      if (selectedRole.toLowerCase() === 'candidate' && result?.needsOnboarding) {
+        navigate('/candidate/profile-photo-setup');
+      } else {
+        navigate(`/${selectedRole.toLowerCase()}/dashboard`);
+      }
     } catch (err: any) {
       setError(err.message || "Google authentication failed");
     }

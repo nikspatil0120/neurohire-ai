@@ -42,15 +42,17 @@ def problem_helper(problem) -> dict:
 async def get_all_problems(published_only: Optional[bool] = None):
     """Get all problems (admin) or only published problems (candidates)"""
     try:
-        from ..core.database import mongo_db
+        from ..core.database import get_mongo_db
         
-        if mongo_db is None:
+        mongodb = get_mongo_db()
+        
+        if mongodb is None:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Database not available"
             )
         
-        problems_coll = mongo_db["problems"]
+        problems_coll = mongodb["problems"]
         
         query = {}
         if published_only:
@@ -73,7 +75,9 @@ async def get_all_problems(published_only: Optional[bool] = None):
 async def get_problem(problem_id: str):
     """Get a single problem by ID"""
     try:
-        from ..core.database import mongo_db
+        from ..core.database import get_mongo_db
+        
+        mongodb = get_mongo_db()
         
         if not ObjectId.is_valid(problem_id):
             raise HTTPException(
@@ -81,7 +85,7 @@ async def get_problem(problem_id: str):
                 detail="Invalid problem ID"
             )
         
-        problems_coll = mongo_db["problems"]
+        problems_coll = mongodb["problems"]
         problem = await problems_coll.find_one({"_id": ObjectId(problem_id)})
         if not problem:
             raise HTTPException(
@@ -102,9 +106,10 @@ async def get_problem(problem_id: str):
 async def create_problem(problem: ProblemCreate):
     """Create a new problem (admin only)"""
     try:
-        from ..core.database import mongo_db
+        from ..core.database import get_mongo_db
         
-        problems_coll = mongo_db["problems"]
+        mongodb = get_mongo_db()
+        problems_coll = mongodb["problems"]
         problem_dict = problem.dict()
         problem_dict["createdAt"] = datetime.utcnow()
         problem_dict["updatedAt"] = datetime.utcnow()
@@ -123,6 +128,10 @@ async def create_problem(problem: ProblemCreate):
 async def update_problem(problem_id: str, problem_update: ProblemUpdate):
     """Update a problem (admin only)"""
     try:
+        from ..core.database import get_mongo_db
+        
+        mongodb = get_mongo_db()
+        
         if not ObjectId.is_valid(problem_id):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -130,7 +139,7 @@ async def update_problem(problem_id: str, problem_update: ProblemUpdate):
             )
         
         # Get existing problem
-        existing_problem = await database.problems_collection.find_one({"_id": ObjectId(problem_id)})
+        existing_problem = await mongodb["problems"].find_one({"_id": ObjectId(problem_id)})
         if not existing_problem:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -141,12 +150,12 @@ async def update_problem(problem_id: str, problem_update: ProblemUpdate):
         update_dict = problem_update.dict(exclude_unset=True)
         update_dict["updatedAt"] = datetime.utcnow()
         
-        await database.problems_collection.update_one(
+        await mongodb["problems"].update_one(
             {"_id": ObjectId(problem_id)},
             {"$set": update_dict}
         )
         
-        updated_problem = await database.problems_collection.find_one({"_id": ObjectId(problem_id)})
+        updated_problem = await mongodb["problems"].find_one({"_id": ObjectId(problem_id)})
         return problem_helper(updated_problem)
     except HTTPException:
         raise
@@ -160,13 +169,17 @@ async def update_problem(problem_id: str, problem_update: ProblemUpdate):
 async def toggle_publish(problem_id: str):
     """Toggle publish status of a problem"""
     try:
+        from ..core.database import get_mongo_db
+        
+        mongodb = get_mongo_db()
+        
         if not ObjectId.is_valid(problem_id):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid problem ID"
             )
         
-        problem = await database.problems_collection.find_one({"_id": ObjectId(problem_id)})
+        problem = await mongodb["problems"].find_one({"_id": ObjectId(problem_id)})
         if not problem:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -175,12 +188,12 @@ async def toggle_publish(problem_id: str):
         
         new_status = not problem.get("published", False)
         
-        await database.problems_collection.update_one(
+        await mongodb["problems"].update_one(
             {"_id": ObjectId(problem_id)},
             {"$set": {"published": new_status, "updatedAt": datetime.utcnow()}}
         )
         
-        updated_problem = await database.problems_collection.find_one({"_id": ObjectId(problem_id)})
+        updated_problem = await mongodb["problems"].find_one({"_id": ObjectId(problem_id)})
         return problem_helper(updated_problem)
     except HTTPException:
         raise
@@ -194,13 +207,17 @@ async def toggle_publish(problem_id: str):
 async def delete_problem(problem_id: str):
     """Delete a problem (admin only)"""
     try:
+        from ..core.database import get_mongo_db
+        
+        mongodb = get_mongo_db()
+        
         if not ObjectId.is_valid(problem_id):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid problem ID"
             )
         
-        result = await database.problems_collection.delete_one({"_id": ObjectId(problem_id)})
+        result = await mongodb["problems"].delete_one({"_id": ObjectId(problem_id)})
         if result.deleted_count == 0:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
