@@ -85,10 +85,30 @@ export const api = {
   getCurrentUser: () => fetchApi("/auth/me"),
 
   updateProfile: (profileData: any) =>
-    fetchApi("/auth/profile", {
-      method: "PUT",
+    fetchApi("/users/profile/data", {
+      method: "POST",
       body: JSON.stringify(profileData),
     }),
+
+  getProfileData: (email: string) => fetchApi(`/users/profile/data?email=${encodeURIComponent(email)}`),
+
+  updateRecruiterProfile: (profileData: any, email: string) =>
+    fetchApi(`/users/recruiter-profile/data?email=${encodeURIComponent(email)}`, {
+      method: "POST",
+      body: JSON.stringify(profileData),
+    }),
+
+  getRecruiterProfileData: (email: string) => fetchApi(`/users/recruiter-profile/data?email=${encodeURIComponent(email)}`),
+
+  // Companies
+  seedCompanies: () =>
+    fetchApi("/companies/seed", {
+      method: "POST",
+    }),
+
+  getCompanies: () => fetchApi("/companies"),
+
+  searchCompanies: (query: string) => fetchApi(`/companies/search?query=${encodeURIComponent(query)}`),
 
   uploadResume: (formData: FormData) => {
     const token = getAuthToken();

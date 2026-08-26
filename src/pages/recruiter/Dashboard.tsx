@@ -1,6 +1,6 @@
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import GlassCard from "@/components/GlassCard";
-import { LayoutDashboard, FilePlus, Database, Trophy, MessageCircle, LogOut, Briefcase, Users, TrendingUp, Plus } from "lucide-react";
+import { LayoutDashboard, FilePlus, Database, Trophy, MessageCircle, LogOut, Briefcase, Users, TrendingUp, Plus, User } from "lucide-react";
 import { Link } from "react-router-dom";
 
 const navItems = [
@@ -9,6 +9,7 @@ const navItems = [
   { label: "Question DB", href: "/recruiter/questions", icon: Database },
   { label: "Rankings", href: "/recruiter/rankings", icon: Trophy },
   { label: "Messages", href: "/recruiter/messages", icon: MessageCircle },
+  { label: "Profile Settings", href: "/recruiter/profile", icon: User },
   { label: "Logout", href: "/login", icon: LogOut },
 ];
 

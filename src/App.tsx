@@ -16,6 +16,7 @@ import NotFound from "./pages/NotFound";
 // Candidate
 import CandidateDashboard from "./pages/candidate/Dashboard";
 import CandidateProfile from "./pages/candidate/Profile";
+import ProfilePhotoOnboarding from "./pages/candidate/ProfilePhotoOnboarding";
 import PracticeMode from "./pages/candidate/PracticeMode";
 import ProblemList from "./pages/candidate/ProblemList";
 import AptitudeTest from "./pages/candidate/AptitudeTest";
@@ -26,6 +27,7 @@ import Report from "./pages/candidate/Report";
 
 // Recruiter
 import RecruiterDashboard from "./pages/recruiter/Dashboard";
+import RecruiterProfile from "./pages/recruiter/Profile";
 import CreateJob from "./pages/recruiter/CreateJob";
 import QuestionDB from "./pages/recruiter/QuestionDB";
 import Rankings from "./pages/recruiter/Rankings";
@@ -57,6 +59,7 @@ const App = () => (
                 {/* Candidate */}
                 <Route path="/candidate/dashboard" element={<CandidateDashboard />} />
                 <Route path="/candidate/profile" element={<CandidateProfile />} />
+                <Route path="/candidate/profile-photo-setup" element={<ProfilePhotoOnboarding />} />
                 <Route path="/candidate/practice" element={<PracticeMode />} />
                 <Route path="/candidate/problem-list" element={<ProblemList />} />
                 <Route path="/candidate/aptitude-test" element={<AptitudeTest />} />
@@ -67,6 +70,7 @@ const App = () => (
 
                 {/* Recruiter */}
                 <Route path="/recruiter/dashboard" element={<RecruiterDashboard />} />
+                <Route path="/recruiter/profile" element={<RecruiterProfile />} />
                 <Route path="/recruiter/create-job" element={<CreateJob />} />
                 <Route path="/recruiter/questions" element={<QuestionDB />} />
                 <Route path="/recruiter/rankings" element={<Rankings />} />

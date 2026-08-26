@@ -43,17 +43,77 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   // Check for existing auth token on mount
   useEffect(() => {
     const initializeAuth = async () => {
+      console.log('Initializing auth...');
       const token = getAuthToken();
+      console.log('Token found:', !!token);
       if (token) {
         try {
-          const response = await api.getCurrentUser();
-          if (response.success && response.data?.user) {
-            setUser(response.data.user);
+          // Handle Google/Admin mock tokens
+          if (token.startsWith('google_token_') || token.startsWith('admin_token_')) {
+            if (token.startsWith('google_token_')) {
+              // Extract user ID from Google token
+              const parts = token.split('_');
+              const googleSub = parts[parts.length - 1];
+              
+              // Reconstruct user from localStorage if available
+              const savedGoogleUser = localStorage.getItem('googleUser');
+              if (savedGoogleUser) {
+                const googleUser = JSON.parse(savedGoogleUser);
+                setUser(googleUser);
+                console.log('Google user restored from localStorage:', googleUser);
+              } else {
+                // Create minimal user object
+                setUser({
+                  id: `google_${googleSub}`,
+                  name: 'Google User',
+                  email: 'user@gmail.com',
+                  role: 'candidate',
+                  isActive: true
+                });
+              }
+            } else if (token.startsWith('admin_token_')) {
+              // Restore admin user
+              setUser({
+                id: 'admin_hardcoded',
+                name: 'System Administrator',
+                email: 'admin@xyz.com',
+                role: 'admin',
+                isActive: true
+              });
+              console.log('Admin user restored');
+            }
+          } else {
+            // Regular JWT token - call API
+            console.log('Calling getCurrentUser API...');
+            const response = await api.getCurrentUser();
+            console.log('getCurrentUser response:', response);
+            // Handle both response formats: {success: true, data: {user: ...}} or direct user object
+            if (response.success && response.data?.user) {
+              setUser(response.data.user);
+              console.log('User restored from API (wrapped):', response.data.user);
+            } else if (response.email && response.id) {
+              // Direct user object response
+              setUser({
+                id: response.id,
+                name: response.full_name || response.name,
+                email: response.email,
+                role: response.role,
+                avatar: response.avatar,
+                isActive: response.is_active,
+                lastLogin: response.last_login
+              });
+              console.log('User restored from API (direct):', response);
+            } else {
+              console.error('Invalid response from getCurrentUser:', response);
+              removeAuthToken();
+            }
           }
         } catch (error) {
           console.error('Failed to get current user:', error);
           removeAuthToken();
         }
+      } else {
+        console.log('No token found, user not authenticated');
       }
       setIsInitializing(false);
     };
@@ -192,7 +252,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setAuthToken(mockToken);
       setUser(mockGoogleUser);
       
+      // Save Google user to localStorage for persistence across refreshes
+      localStorage.setItem('googleUser', JSON.stringify(mockGoogleUser));
+      
+      // Check if profile photo is completed
+      const profilePhotoCompleted = localStorage.getItem('profilePhotoCompleted');
+      
       console.log('Google user logged in:', mockGoogleUser);
+      console.log('Profile photo completed:', profilePhotoCompleted);
+      
+      // Return flag to indicate if onboarding is needed
+      return { needsOnboarding: profilePhotoCompleted !== 'true' };
       
     } catch (error: any) {
       console.error('Google login error:', error);
@@ -209,6 +279,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       console.error('Logout error:', error);
     } finally {
       removeAuthToken();
+      localStorage.removeItem('googleUser'); // Clear Google user data
       setUser(null);
     }
   };
