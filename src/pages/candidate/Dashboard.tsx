@@ -89,6 +89,12 @@ const CandidateDashboard = () => {
             </h3>
             <div className="space-y-3">
               <Link
+                to="/candidate/quick-start-interview"
+                className="block w-full py-3 px-4 rounded-lg bg-gradient-to-r from-primary to-secondary border border-primary/50 text-primary-foreground text-sm text-center hover:shadow-[0_0_20px_rgba(0,229,255,0.3)] transition-all font-semibold animate-glow-pulse"
+              >
+                🚀 Quick Start Interview (DEV)
+              </Link>
+              <Link
                 to="/candidate/practice"
                 className="block w-full py-3 px-4 rounded-lg bg-primary/10 border border-primary/30 text-primary text-sm text-center hover:bg-primary/20 transition-all"
               >
@@ -98,7 +104,7 @@ const CandidateDashboard = () => {
                 to="/candidate/interview-room"
                 className="block w-full py-3 px-4 rounded-lg bg-secondary/10 border border-secondary/30 text-secondary text-sm text-center hover:bg-secondary/20 transition-all"
               >
-                Enter Interview Room
+                Enter Interview Room (Old)
               </Link>
             </div>
           </GlassCard>

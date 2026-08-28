@@ -22,6 +22,7 @@ import ProblemList from "./pages/candidate/ProblemList";
 import AptitudeTest from "./pages/candidate/AptitudeTest";
 import TechnicalCoding from "./pages/candidate/TechnicalCoding";
 import InterviewRoom from "./pages/candidate/InterviewRoom";
+import QuickStartInterview from "./pages/candidate/QuickStartInterview";
 import Interviews from "./pages/candidate/Interviews";
 import Report from "./pages/candidate/Report";
 
@@ -65,6 +66,8 @@ const App = () => (
                 <Route path="/candidate/aptitude-test" element={<AptitudeTest />} />
                 <Route path="/candidate/technical-coding" element={<TechnicalCoding />} />
                 <Route path="/candidate/interview-room" element={<InterviewRoom />} />
+                <Route path="/candidate/interview/:interviewId" element={<InterviewRoom />} />
+                <Route path="/candidate/quick-start-interview" element={<QuickStartInterview />} />
                 <Route path="/candidate/interviews" element={<Interviews />} />
                 <Route path="/candidate/reports" element={<Report />} />
 

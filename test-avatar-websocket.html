@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Avatar WebSocket Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        .container {
+            background: #2a2a2a;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #60a5fa;
+            margin-bottom: 20px;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        .connected {
+            background: #10b981;
+            color: white;
+        }
+        .disconnected {
+            background: #ef4444;
+            color: white;
+        }
+        .waiting {
+            background: #f59e0b;
+            color: white;
+        }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #2563eb;
+        }
+        button:disabled {
+            background: #6b7280;
+            cursor: not-allowed;
+        }
+        .log {
+            background: #1a1a1a;
+            border: 1px solid #3b82f6;
+            border-radius: 5px;
+            padding: 15px;
+            margin-top: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+        .log-entry {
+            margin: 5px 0;
+            padding: 5px;
+            border-left: 3px solid #3b82f6;
+            padding-left: 10px;
+        }
+        .log-sent {
+            border-left-color: #8b5cf6;
+            color: #c4b5fd;
+        }
+        .log-received {
+            border-left-color: #10b981;
+            color: #6ee7b7;
+        }
+        .log-error {
+            border-left-color: #ef4444;
+            color: #fca5a5;
+        }
+        .log-info {
+            border-left-color: #60a5fa;
+            color: #93c5fd;
+        }
+        .question {
+            background: #3b82f6;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .controls {
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 Avatar WebSocket Test</h1>
+        
+        <div id="status" class="status waiting">
+            ⏳ Not Connected
+        </div>
+
+        <div class="controls">
+            <button id="connectBtn" onclick="connect()">Connect</button>
+            <button id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
+            <button id="nextQuestionBtn" onclick="requestNextQuestion()" disabled>Next Question</button>
+            <button id="clearBtn" onclick="clearLog()">Clear Log</button>
+        </div>
+
+        <div id="currentQuestion" style="display: none;">
+            <h3>Current Question:</h3>
+            <div class="question" id="questionText"></div>
+        </div>
+
+        <h3>WebSocket Log:</h3>
+        <div id="log" class="log"></div>
+    </div>
+
+    <script>
+        let ws = null;
+        const interviewId = `test-${Date.now()}`;
+        const wsUrl = `ws://localhost:8000/api/ws/avatar/${interviewId}`;
+
+        function addLog(message, type = 'info') {
+            const log = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            
+            const timestamp = new Date().toLocaleTimeString();
+            entry.textContent = `[${timestamp}] ${message}`;
+            
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function updateStatus(text, className) {
+            const status = document.getElementById('status');
+            status.textContent = text;
+            status.className = `status ${className}`;
+        }
+
+        function connect() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                addLog('Already connected!', 'info');
+                return;
+            }
+
+            addLog(`Connecting to ${wsUrl}...`, 'info');
+            updateStatus('⏳ Connecting...', 'waiting');
+
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                addLog('✅ WebSocket connected!', 'info');
+                updateStatus('✅ Connected', 'connected');
+                
+                document.getElementById('connectBtn').disabled = true;
+                document.getElementById('disconnectBtn').disabled = false;
+                document.getElementById('nextQuestionBtn').disabled = false;
+
+                // Send init message
+                const initMsg = {
+                    type: 'init',
+                    interviewId: interviewId
+                };
+                ws.send(JSON.stringify(initMsg));
+                addLog(`→ Sent: ${JSON.stringify(initMsg)}`, 'sent');
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(event.data);
+                    addLog(`← Received: ${JSON.stringify(message, null, 2)}`, 'received');
+
+                    // Handle different message types
+                    if (message.type === 'question') {
+                        const questionDiv = document.getElementById('currentQuestion');
+                        const questionText = document.getElementById('questionText');
+                        questionDiv.style.display = 'block';
+                        questionText.textContent = message.question;
+                        addLog(`📝 Question ${message.question_number || ''}: ${message.question}`, 'info');
+                    } else if (message.type === 'speaking_state') {
+                        addLog(`🗣️ Speaking: ${message.speaking}`, 'info');
+                    } else if (message.type === 'connection') {
+                        addLog(`🔗 ${message.message}`, 'info');
+                    } else if (message.type === 'error') {
+                        addLog(`❌ Error: ${message.error}`, 'error');
+                    }
+                } catch (error) {
+                    addLog(`❌ Parse error: ${error.message}`, 'error');
+                }
+            };
+
+            ws.onerror = (error) => {
+                addLog(`❌ WebSocket error: ${error}`, 'error');
+                updateStatus('❌ Connection Error', 'disconnected');
+            };
+
+            ws.onclose = () => {
+                addLog('🔌 WebSocket disconnected', 'info');
+                updateStatus('🔌 Disconnected', 'disconnected');
+                
+                document.getElementById('connectBtn').disabled = false;
+                document.getElementById('disconnectBtn').disabled = true;
+                document.getElementById('nextQuestionBtn').disabled = true;
+            };
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                addLog('Disconnecting...', 'info');
+            }
+        }
+
+        function requestNextQuestion() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const msg = {
+                    type: 'control',
+                    action: 'next_question'
+                };
+                ws.send(JSON.stringify(msg));
+                addLog(`→ Sent: ${JSON.stringify(msg)}`, 'sent');
+            } else {
+                addLog('❌ Not connected!', 'error');
+            }
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+            addLog('Log cleared', 'info');
+        }
+
+        // Auto-connect on page load
+        window.onload = () => {
+            addLog('Page loaded. Click Connect to start.', 'info');
+        };
+    </script>
+</body>
+</html>
