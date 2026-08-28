@@ -173,15 +173,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       // Set token and user
       setAuthToken(data.access_token);
-      setUser({
+      const userData = {
         id: data.user.id,
         name: data.user.full_name,
         email: data.user.email,
         role: data.user.role,
         avatar: undefined,
         isActive: data.user.is_active,
-        lastLogin: data.user.last_login
-      });
+        lastLogin: data.user.last_login,
+        organization_name: data.user.organization_name || '' // Include organization
+      };
+      setUser(userData);
+      
+      // Store full user data in localStorage for job creation
+      localStorage.setItem('user', JSON.stringify(userData));
       
       console.log('User logged in:', data.user);
       return;

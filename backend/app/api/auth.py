@@ -179,7 +179,8 @@ async def login(
             "role": user["role"],
             "is_active": user["is_active"],
             "created_at": user["created_at"],
-            "last_login": user.get("last_login")
+            "last_login": user.get("last_login"),
+            "organization_name": user.get("organization_name", "")  # Include organization
         }
     }
 
