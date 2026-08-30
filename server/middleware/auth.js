@@ -23,7 +23,30 @@ export const authenticateToken = async (req, res, next) => {
       });
     }
 
-    // Verify token
+    // Check if it's a Google mock token or admin token
+    if (token.startsWith('google_token_') || token.startsWith('admin_token_')) {
+      // For Google/Admin mock tokens, extract user ID from token
+      let userId;
+      if (token.startsWith('google_token_')) {
+        // Extract Google user ID from token format: google_token_{timestamp}_{sub}
+        const parts = token.split('_');
+        const googleSub = parts[parts.length - 1];
+        userId = `google_${googleSub}`;
+      } else {
+        userId = 'admin_hardcoded';
+      }
+      
+      // Create minimal user object without database lookup
+      req.user = {
+        id: userId,
+        _id: userId,
+        isActive: true
+      };
+      
+      return next();
+    }
+
+    // Verify regular JWT token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     
     // Get user from database
@@ -40,6 +63,8 @@ export const authenticateToken = async (req, res, next) => {
     req.user = user;
     next();
   } catch (error) {
+    console.error('Auth middleware error:', error);
+    
     if (error.name === 'JsonWebTokenError') {
       return res.status(401).json({
         success: false,
@@ -54,10 +79,10 @@ export const authenticateToken = async (req, res, next) => {
       });
     }
 
-    console.error('Auth middleware error:', error);
     res.status(500).json({
       success: false,
-      message: 'Authentication error'
+      message: 'Authentication error',
+      error: error.message
     });
   }
 };

@@ -9,6 +9,8 @@ import compilerRoutes from './routes/compiler.js';
 import problemsRoutes from './routes/problems.js';
 import userProgressRoutes from './routes/userProgress.js';
 import aptitudeQuestionsRoutes from './routes/aptitudeQuestions.js';
+import profileRoutes from './routes/profile.js';
+import submissionsRoutes from './routes/submissions.js';
 
 // Load environment variables
 dotenv.config();
@@ -101,6 +103,8 @@ app.use('/api/compiler', compilerRoutes);
 app.use('/api/problems', problemsRoutes);
 app.use('/api/progress', userProgressRoutes);
 app.use('/api/aptitude-questions', aptitudeQuestionsRoutes);
+app.use('/api/profile', profileRoutes);
+app.use('/api/submissions', submissionsRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {

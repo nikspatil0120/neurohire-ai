@@ -20,6 +20,9 @@ class JobCreate(BaseModel):
     recruiter_email: str
     recruiter_name: str
     organization_name: str
+    status: Optional[str] = "draft"  # "draft" or "published"
+    aptitude_questions: Optional[List] = []
+    coding_problems: Optional[List] = []
 
 class JobResponse(BaseModel):
     id: str
@@ -41,19 +44,25 @@ class JobUpdate(BaseModel):
     key_responsibilities: Optional[List[str]] = None
     is_active: Optional[bool] = None
 
+class JobStatusUpdate(BaseModel):
+    status: str  # "draft" or "published"
+
 # Helper function to convert MongoDB document to dict
 def job_helper(job) -> dict:
     """Convert MongoDB job document to dict with string IDs"""
     return {
-        "id": str(job["_id"]),
+        "_id": str(job["_id"]),  # Frontend expects _id
+        "id": str(job["_id"]),   # Keep id for compatibility
         "title": job.get("title", ""),
         "experience": job.get("experience", ""),
         "required_skills": job.get("required_skills", []),
         "key_responsibilities": job.get("key_responsibilities", []),
-        "created_by": str(job.get("created_by", "")),  # Convert ObjectId to string
+        "created_by": str(job.get("created_by", "")),
+        "recruiter_id": str(job.get("created_by", "")),  # Frontend expects recruiter_id
         "recruiter_email": job.get("recruiter_email", ""),
         "recruiter_name": job.get("recruiter_name", ""),
         "organization_name": job.get("organization_name", ""),
+        "status": "published" if job.get("is_active", True) else "draft",  # Frontend expects status
         "is_active": job.get("is_active", True),
         "views": job.get("views", 0),
         "applications": job.get("applications", 0),
@@ -87,6 +96,7 @@ async def create_job(job_data: JobCreate):
         
         # Prepare job document
         current_time = datetime.utcnow().isoformat()
+        is_active = job_data.status == "published" if job_data.status else True
         job_document = {
             "title": job_data.title,
             "experience": job_data.experience,
@@ -96,7 +106,8 @@ async def create_job(job_data: JobCreate):
             "recruiter_email": job_data.recruiter_email,
             "recruiter_name": job_data.recruiter_name,
             "organization_name": job_data.organization_name,
-            "is_active": True,
+            "status": job_data.status or "draft",
+            "is_active": is_active,
             "views": 0,
             "applications": 0,
             "created_at": current_time,
@@ -355,4 +366,72 @@ async def delete_job(job_id: str):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error deleting job: {str(e)}"
+        )
+
+@router.patch("/{job_id}/status")
+async def update_job_status(job_id: str, status_update: JobStatusUpdate):
+    """Update job status (draft/published)"""
+    try:
+        mongodb = get_mongo_db()
+        
+        if mongodb is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Database not available"
+            )
+        
+        jobs_collection = mongodb["jobs"]
+        
+        # Convert string to ObjectId
+        try:
+            job_object_id = ObjectId(job_id)
+        except:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid job ID format"
+            )
+        
+        # Check if job exists
+        existing_job = await jobs_collection.find_one({"_id": job_object_id})
+        if not existing_job:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Job not found"
+            )
+        
+        # Update status and is_active
+        is_active = status_update.status == "published"
+        result = await jobs_collection.update_one(
+            {"_id": job_object_id},
+            {
+                "$set": {
+                    "status": status_update.status,
+                    "is_active": is_active,
+                    "updated_at": datetime.utcnow().isoformat()
+                }
+            }
+        )
+        
+        if result.matched_count == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Job not found"
+            )
+        
+        # Get updated job
+        updated_job = await jobs_collection.find_one({"_id": job_object_id})
+        
+        return {
+            "success": True,
+            "message": f"Job {status_update.status} successfully",
+            "job": job_helper(updated_job)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating job status: {type(e).__name__}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error updating job status: {str(e)}"
         )

@@ -24,11 +24,14 @@ import TechnicalCoding from "./pages/candidate/TechnicalCoding";
 import InterviewRoom from "./pages/candidate/InterviewRoom";
 import Interviews from "./pages/candidate/Interviews";
 import Report from "./pages/candidate/Report";
+import IncomingOpportunities from "./pages/candidate/IncomingOpportunities";
 
 // Recruiter
 import RecruiterDashboard from "./pages/recruiter/Dashboard";
 import RecruiterProfile from "./pages/recruiter/Profile";
 import CreateJob from "./pages/recruiter/CreateJob";
+import EditJob from "./pages/recruiter/EditJob";
+import JobsCreated from "./pages/recruiter/JobsCreated";
 import QuestionDB from "./pages/recruiter/QuestionDB";
 import Rankings from "./pages/recruiter/Rankings";
 import Messaging from "./pages/recruiter/Messaging";
@@ -40,6 +43,7 @@ import DSAProblems from "./pages/admin/DSAProblems";
 import AptitudeQuestions from "./pages/admin/AptitudeQuestions";
 import Recruiters from "./pages/admin/Recruiters";
 import Candidates from "./pages/admin/Candidates";
+import IncomingJobs from "./pages/admin/IncomingJobs";
 
 const queryClient = new QueryClient();
 
@@ -67,11 +71,14 @@ const App = () => (
                 <Route path="/candidate/interview-room" element={<InterviewRoom />} />
                 <Route path="/candidate/interviews" element={<Interviews />} />
                 <Route path="/candidate/reports" element={<Report />} />
+                <Route path="/candidate/incoming-opportunities" element={<IncomingOpportunities />} />
 
                 {/* Recruiter */}
                 <Route path="/recruiter/dashboard" element={<RecruiterDashboard />} />
                 <Route path="/recruiter/profile" element={<RecruiterProfile />} />
                 <Route path="/recruiter/create-job" element={<CreateJob />} />
+                <Route path="/recruiter/edit-job/:jobId" element={<EditJob />} />
+                <Route path="/recruiter/jobs-created" element={<JobsCreated />} />
                 <Route path="/recruiter/questions" element={<QuestionDB />} />
                 <Route path="/recruiter/rankings" element={<Rankings />} />
                 <Route path="/recruiter/messages" element={<Messaging />} />
@@ -83,6 +90,7 @@ const App = () => (
                 <Route path="/admin/candidates" element={<Candidates />} />
                 <Route path="/admin/dsa-problems" element={<DSAProblems />} />
                 <Route path="/admin/aptitude-questions" element={<AptitudeQuestions />} />
+                <Route path="/admin/incoming-jobs" element={<IncomingJobs />} />
 
                 <Route path="*" element={<NotFound />} />
               </Routes>

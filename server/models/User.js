@@ -36,6 +36,14 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  profilePhoto: {
+    type: String,      // stores base64 image string
+    default: null
+  },
+  faceRegistered: {
+    type: Boolean,
+    default: false
+  },
   googleId: {
     type: String,
     default: null

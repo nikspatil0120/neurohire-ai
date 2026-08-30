@@ -1,48 +1,20 @@
-# Multi-language compiler Docker image (Python, Java, C++, C)
 FROM ubuntu:22.04
 
-# Prevent interactive prompts during installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Update and install basic tools
 RUN apt-get update && apt-get install -y \
-    curl \
-    wget \
-    git \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Python 3
-RUN apt-get update && apt-get install -y \
-    python3 \
-    python3-pip \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Java 17
-RUN apt-get update && apt-get install -y \
+    curl wget git build-essential \
+    python3 python3-pip \
     openjdk-17-jdk \
+    gcc g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Install GCC/G++ for C/C++
-RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
-    && rm -rf /var/lib/apt/lists/*
+# Create workspace directory
+RUN mkdir -p /workspace && chmod 777 /workspace
 
-# Create non-root user for security
-RUN useradd -m -s /bin/bash compiler && \
-    mkdir -p /workspace && \
-    chown compiler:compiler /workspace
-
-# Set working directory
 WORKDIR /workspace
 
-# Switch to non-root user
-USER compiler
-
-# Set environment variables
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 ENV PATH=$PATH:$JAVA_HOME/bin
 
-# Default command
 CMD ["/bin/bash"]

@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
-import GlassCard from "@/components/GlassCard";
-import { Clock, ArrowRight, Brain, CheckCircle, XCircle, RotateCcw, ArrowLeft } from "lucide-react";
-import { cn } from "@/lib/utils";
+import GlassCard from "../../components/GlassCard";
+import { Clock, ArrowRight, Brain, CheckCircle, XCircle, RotateCcw, ArrowLeft, RefreshCw, Settings, Maximize2, Minimize2 } from "lucide-react";
+import { cn } from "../../lib/utils";
 
 interface Option {
   text: string;
@@ -38,6 +38,12 @@ const AptitudeTest = () => {
   // Filter states
   const [filterCategory, setFilterCategory] = useState<"All" | "Verbal" | "Quantitative" | "Reasoning" | "Technical">("All");
   const [filterDifficulty, setFilterDifficulty] = useState<"All" | "Easy" | "Medium" | "Hard">("All");
+  
+  // UI states
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [backgroundTheme, setBackgroundTheme] = useState<"normal" | "ruled">("normal");
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadQuestions();
@@ -152,6 +158,38 @@ const AptitudeTest = () => {
     setFilterCategory("All");
     setFilterDifficulty("All");
   };
+
+  const handleRefresh = () => {
+    console.log('Refresh clicked');
+    window.location.reload();
+  };
+
+  const handleFullscreen = () => {
+    console.log('Fullscreen clicked, current state:', isFullscreen);
+    if (!document.fullscreenElement) {
+      containerRef.current?.requestFullscreen().then(() => {
+        setIsFullscreen(true);
+        console.log('Entered fullscreen');
+      }).catch(err => {
+        console.error('Fullscreen error:', err);
+      });
+    } else {
+      document.exitFullscreen().then(() => {
+        setIsFullscreen(false);
+        console.log('Exited fullscreen');
+      }).catch(err => {
+        console.error('Exit fullscreen error:', err);
+      });
+    }
+  };
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
 
   if (isLoading) {
     return (
@@ -319,7 +357,15 @@ const AptitudeTest = () => {
   const progress = ((currentQuestionIndex + 1) / questions.length) * 100;
 
   return (
-    <div className="min-h-screen bg-background p-6">
+    <div 
+      ref={containerRef}
+      className={cn(
+        "min-h-screen p-6",
+        backgroundTheme === "ruled" 
+          ? "bg-[linear-gradient(rgba(0,0,0,0.03)_1px,transparent_1px)] bg-[size:100%_2rem]" 
+          : "bg-background"
+      )}
+    >
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-3">
@@ -338,8 +384,71 @@ const AptitudeTest = () => {
             <Clock className="w-4 h-4 text-primary" />
             <span className="font-mono text-sm text-foreground">{formatTime(timeLeft)}</span>
           </div>
+          {/* Corner buttons */}
+          <div className="flex items-center gap-2 relative z-50">
+            <button
+              onClick={handleRefresh}
+              className="p-2 rounded-lg bg-muted/20 hover:bg-muted/30 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              title="Refresh"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => {
+                console.log('Settings button clicked');
+                setShowSettings(!showSettings);
+              }}
+              className="p-2 rounded-lg bg-muted/20 hover:bg-muted/30 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              title="Settings"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => {
+                console.log('Fullscreen button clicked, current state:', isFullscreen);
+                handleFullscreen();
+              }}
+              className="p-2 rounded-lg bg-muted/20 hover:bg-muted/30 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+            >
+              {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Settings Panel */}
+      {showSettings && (
+        <div className="mb-6">
+          <GlassCard variant="neon" hover={false} className="p-4">
+            <h3 className="text-sm font-semibold text-foreground mb-3">Background Settings</h3>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setBackgroundTheme("normal")}
+                className={cn(
+                  "flex-1 px-4 py-2 rounded-lg text-sm transition-colors",
+                  backgroundTheme === "normal"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted/30 text-muted-foreground hover:bg-muted/50"
+                )}
+              >
+                Normal
+              </button>
+              <button
+                onClick={() => setBackgroundTheme("ruled")}
+                className={cn(
+                  "flex-1 px-4 py-2 rounded-lg text-sm transition-colors",
+                  backgroundTheme === "ruled"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted/30 text-muted-foreground hover:bg-muted/50"
+                )}
+              >
+                Ruled Lines
+              </button>
+            </div>
+          </GlassCard>
+        </div>
+      )}
 
       {/* Progress */}
       <div className="h-1 rounded-full bg-muted/30 mb-8">

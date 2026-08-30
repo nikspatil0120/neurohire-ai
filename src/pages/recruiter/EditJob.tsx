@@ -1,10 +1,10 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import GlassCard from "@/components/GlassCard";
 import { 
   LayoutDashboard, FilePlus, Database, Trophy, MessageCircle, LogOut, Save, 
-  CheckCircle, ChevronDown, ChevronUp, Plus, Trash2, Code, BookOpen, Eye, EyeOff, XCircle, Briefcase 
+  CheckCircle, ChevronDown, ChevronUp, Plus, Trash2, Code, BookOpen, XCircle, Briefcase 
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -23,7 +23,7 @@ interface AptitudeQuestion {
   question: string;
   type: "MCQ" | "MSQ" | "NAT";
   options: string[];
-  correctAnswer: number | number[] | string; // single index for MCQ, array for MSQ, string for NAT
+  correctAnswer: number | number[] | string;
   difficulty: "Easy" | "Medium" | "Hard";
   topic: string;
 }
@@ -43,7 +43,8 @@ interface CodingProblem {
   };
 }
 
-const CreateJob = () => {
+const EditJob = () => {
+  const { jobId } = useParams();
   const navigate = useNavigate();
   const { toast } = useToast();
   
@@ -57,7 +58,7 @@ const CreateJob = () => {
   
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [skillInput, setSkillInput] = useState("");
-  const [showDebug, setShowDebug] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   
   // Aptitude and Coding round states
   const [showAptitudeRound, setShowAptitudeRound] = useState(false);
@@ -68,6 +69,59 @@ const CreateJob = () => {
   // Expanded sections
   const [expandedAptitude, setExpandedAptitude] = useState(false);
   const [expandedCoding, setExpandedCoding] = useState(false);
+
+  // Load existing job data
+  useEffect(() => {
+    loadJobData();
+  }, [jobId]);
+
+  const loadJobData = async () => {
+    if (!jobId) return;
+    
+    setIsLoading(true);
+    try {
+      const response = await fetch(`http://localhost:8000/api/v1/jobs/${jobId}`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to load job');
+      }
+      
+      const data = await response.json();
+      console.log('[EditJob] Job data:', data);
+      
+      // Parse experience to extract number
+      const experienceMatch = data.experience?.match(/(\d+(\.\d+)?)/);
+      const minExperience = experienceMatch ? experienceMatch[1] : "";
+      
+      setFormData({
+        title: data.title || "",
+        minExperience: minExperience,
+        requiredSkills: data.required_skills || [],
+        keyResponsibilities: (data.key_responsibilities || []).join(", ")
+      });
+      
+      setAptitudeQuestions(data.aptitude_questions || []);
+      setCodingProblems(data.coding_problems || []);
+      
+      if (data.aptitude_questions && data.aptitude_questions.length > 0) {
+        setShowAptitudeRound(true);
+      }
+      if (data.coding_problems && data.coding_problems.length > 0) {
+        setShowCodingRound(true);
+      }
+      
+    } catch (error) {
+      console.error('[EditJob] Error loading job:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load job data",
+        variant: "destructive"
+      });
+      navigate('/recruiter/jobs-created');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Get recruiter info from localStorage
   const getRecruiterInfo = () => {
@@ -145,7 +199,6 @@ const CreateJob = () => {
 
     try {
       const recruiterInfo = getRecruiterInfo();
-      console.log('[CreateJob] Recruiter info:', recruiterInfo);
 
       // Parse responsibilities
       const responsibilitiesArray = formData.keyResponsibilities
@@ -156,7 +209,7 @@ const CreateJob = () => {
       // Prepare request payload
       const payload = {
         title: formData.title.trim(),
-        experience: `${formData.minExperience}+ years`, // Backend expects 'experience' as string
+        experience: `${formData.minExperience}+ years`,
         required_skills: formData.requiredSkills,
         key_responsibilities: responsibilitiesArray,
         recruiter_id: recruiterInfo.id,
@@ -165,16 +218,14 @@ const CreateJob = () => {
         organization_name: recruiterInfo.organization,
         aptitude_questions: aptitudeQuestions,
         coding_problems: codingProblems,
-        status: "draft" // Initially save as draft
+        status: "draft"
       };
 
-      console.log('[CreateJob] === PAYLOAD DEBUG ===');
-      console.log('[CreateJob] Payload:', JSON.stringify(payload, null, 2));
-      console.log('[CreateJob] =======================');
+      console.log('[EditJob] Updating job:', payload);
 
       // Make API call
-      const response = await fetch('http://localhost:8000/api/v1/jobs/', {
-        method: 'POST',
+      const response = await fetch(`http://localhost:8000/api/v1/jobs/${jobId}`, {
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json'
         },
@@ -183,56 +234,26 @@ const CreateJob = () => {
 
       const data = await response.json();
       
-      console.log('Response status:', response.status);
-      console.log('Response data:', data);
+      console.log('[EditJob] Response:', data);
 
       if (response.ok) {
         toast({
           title: "Success!",
-          description: "Job posting created successfully",
+          description: "Job updated successfully",
           duration: 3000
         });
-
-        // Clear form
-        setFormData({
-          title: "",
-          minExperience: "",
-          requiredSkills: [],
-          keyResponsibilities: ""
-        });
-        setSkillInput("");
-        setAptitudeQuestions([]);
-        setCodingProblems([]);
 
         // Navigate to Jobs Created page
         setTimeout(() => {
           navigate('/recruiter/jobs-created');
         }, 2000);
       } else {
-        // Parse and format error details
-        let errorMessage = 'Failed to create job';
-        
-        if (data.detail) {
-          if (Array.isArray(data.detail)) {
-            // FastAPI validation errors
-            errorMessage = data.detail.map((e: any) => {
-              const field = e.loc ? e.loc.join('.') : 'unknown';
-              return `${field}: ${e.msg}`;
-            }).join('\n');
-          } else if (typeof data.detail === 'string') {
-            errorMessage = data.detail;
-          } else {
-            errorMessage = JSON.stringify(data.detail);
-          }
-        }
-        
-        console.error('API Error:', errorMessage);
-        throw new Error(errorMessage);
+        throw new Error(data.detail || 'Failed to update job');
       }
     } catch (error) {
-      console.error('Error creating job:', error);
+      console.error('[EditJob] Error updating job:', error);
       
-      let displayMessage = 'Failed to create job posting';
+      let displayMessage = 'Failed to update job';
       if (error instanceof Error) {
         displayMessage = error.message;
       }
@@ -241,15 +262,25 @@ const CreateJob = () => {
         title: "Error",
         description: displayMessage,
         variant: "destructive",
-        duration: 10000 // Longer duration to read error
+        duration: 10000
       });
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  if (isLoading) {
+    return (
+      <DashboardLayout navItems={navItems} title="EDIT JOB">
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />
+        </div>
+      </DashboardLayout>
+    );
+  }
+
   return (
-    <DashboardLayout navItems={navItems} title="CREATE JOB">
+    <DashboardLayout navItems={navItems} title="EDIT JOB">
       <div className="max-w-3xl space-y-6">
         <GlassCard variant="neon" hover={false}>
           <h3 className="text-foreground font-semibold mb-6">Job Details</h3>
@@ -495,7 +526,6 @@ const CreateJob = () => {
                             const newType = e.target.value as "MCQ" | "MSQ" | "NAT";
                             updated[index].type = newType;
                             
-                            // Reset based on type
                             if (newType === "NAT") {
                               updated[index].options = [];
                               updated[index].correctAnswer = "";
@@ -598,7 +628,6 @@ const CreateJob = () => {
                                   onClick={() => {
                                     const updated = [...aptitudeQuestions];
                                     updated[index].options.splice(optIndex, 1);
-                                    // Adjust correct answers if needed
                                     if (question.type === "MCQ" && question.correctAnswer === optIndex) {
                                       updated[index].correctAnswer = 0;
                                     } else if (question.type === "MSQ" && Array.isArray(question.correctAnswer)) {
@@ -734,16 +763,15 @@ const CreateJob = () => {
                           onClick={() => {
                             setCodingProblems(codingProblems.filter(p => p.id !== problem.id));
                           }}
-                          className="p-1 rounded hover:bg-red-500/20 text-red-400 hover:text-red-300 transition-colors"
+                          className="p-1 rounded hover:bg-red-500/20 text-red-400"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
 
-                      {/* Title */}
                       <input
                         type="text"
-                        placeholder="Problem title (e.g., Two Sum)"
+                        placeholder="Problem Title"
                         value={problem.title}
                         onChange={(e) => {
                           const updated = [...codingProblems];
@@ -753,9 +781,8 @@ const CreateJob = () => {
                         className="w-full px-3 py-2 rounded bg-background/50 border border-border/50 text-foreground text-sm focus:outline-none focus:border-primary/50"
                       />
 
-                      {/* Description */}
                       <textarea
-                        placeholder="Problem description"
+                        placeholder="Problem Description"
                         value={problem.description}
                         onChange={(e) => {
                           const updated = [...codingProblems];
@@ -763,10 +790,9 @@ const CreateJob = () => {
                           setCodingProblems(updated);
                         }}
                         className="w-full px-3 py-2 rounded bg-background/50 border border-border/50 text-foreground text-sm resize-none focus:outline-none focus:border-primary/50"
-                        rows={4}
+                        rows={3}
                       />
 
-                      {/* Difficulty and Tags */}
                       <div className="flex gap-3">
                         <select
                           value={problem.difficulty}
@@ -783,7 +809,7 @@ const CreateJob = () => {
                         </select>
                         <input
                           type="text"
-                          placeholder="Tags (comma-separated, e.g., Array, Hash Table)"
+                          placeholder="Tags (comma separated)"
                           value={problem.tags.join(", ")}
                           onChange={(e) => {
                             const updated = [...codingProblems];
@@ -793,74 +819,6 @@ const CreateJob = () => {
                           className="flex-1 px-3 py-2 rounded bg-background/50 border border-border/50 text-foreground text-sm focus:outline-none focus:border-primary/50"
                         />
                       </div>
-
-                      {/* Test Cases */}
-                      <div className="space-y-2">
-                        <label className="text-xs text-muted-foreground">Test Cases:</label>
-                        {problem.testCases.map((testCase, tcIndex) => (
-                          <div key={tcIndex} className="flex gap-2">
-                            <input
-                              type="text"
-                              placeholder="Input"
-                              value={testCase.inputs[0] || ""}
-                              onChange={(e) => {
-                                const updated = [...codingProblems];
-                                updated[index].testCases[tcIndex].inputs[0] = e.target.value;
-                                setCodingProblems(updated);
-                              }}
-                              className="flex-1 px-3 py-2 rounded bg-background/50 border border-border/50 text-foreground text-xs font-mono focus:outline-none focus:border-primary/50"
-                            />
-                            <input
-                              type="text"
-                              placeholder="Expected Output"
-                              value={testCase.expectedOutput}
-                              onChange={(e) => {
-                                const updated = [...codingProblems];
-                                updated[index].testCases[tcIndex].expectedOutput = e.target.value;
-                                setCodingProblems(updated);
-                              }}
-                              className="flex-1 px-3 py-2 rounded bg-background/50 border border-border/50 text-foreground text-xs font-mono focus:outline-none focus:border-primary/50"
-                            />
-                            <select
-                              value={testCase.visibility}
-                              onChange={(e) => {
-                                const updated = [...codingProblems];
-                                updated[index].testCases[tcIndex].visibility = e.target.value as "visible" | "hidden";
-                                setCodingProblems(updated);
-                              }}
-                              className="px-2 py-2 rounded bg-background/50 border border-border/50 text-foreground text-xs focus:outline-none focus:border-primary/50"
-                            >
-                              <option value="visible">👁️ Visible</option>
-                              <option value="hidden">🔒 Hidden</option>
-                            </select>
-                            {tcIndex > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const updated = [...codingProblems];
-                                  updated[index].testCases.splice(tcIndex, 1);
-                                  setCodingProblems(updated);
-                                }}
-                                className="p-2 rounded hover:bg-red-500/20 text-red-400"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                            )}
-                          </div>
-                        ))}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const updated = [...codingProblems];
-                            updated[index].testCases.push({ inputs: [], expectedOutput: "", visibility: "visible" });
-                            setCodingProblems(updated);
-                          }}
-                          className="text-xs text-primary hover:text-primary/80 flex items-center gap-1"
-                        >
-                          <Plus className="w-3 h-3" />
-                          Add Test Case
-                        </button>
-                      </div>
                     </div>
                   ))}
                 </div>
@@ -869,100 +827,29 @@ const CreateJob = () => {
           </GlassCard>
         )}
 
-        {/* Debug Section */}
-        <GlassCard variant="neon" hover={false}>
+        {/* Submit Button */}
+        <div className="flex gap-4">
           <button
-            type="button"
-            onClick={() => setShowDebug(!showDebug)}
-            className="w-full flex items-center justify-between text-left"
+            onClick={handleSubmit}
+            disabled={isSubmitting}
+            className="flex-1 py-3 rounded-lg bg-gradient-to-r from-primary to-primary/80 text-primary-foreground font-semibold text-sm tracking-wide hover:shadow-[0_0_30px_hsl(185_100%_50%/0.4)] transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
-            <span className="text-sm font-medium text-muted-foreground">🐛 Debug Payload</span>
-            <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${showDebug ? 'rotate-180' : ''}`} />
+            {isSubmitting ? (
+              <><div className="w-4 h-4 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" /> Saving...</>
+            ) : (
+              <><Save className="w-4 h-4" /> Save Changes</>
+            )}
           </button>
-          
-          {showDebug && (
-            <div className="mt-4 space-y-3">
-              <button
-                type="button"
-                onClick={() => {
-                  const recruiterInfo = getRecruiterInfo();
-                  const responsibilitiesArray = formData.keyResponsibilities
-                    .split(/[,\n]/)
-                    .map(resp => resp.trim())
-                    .filter(resp => resp.length > 0);
-
-                  const payload = {
-                    title: formData.title.trim(),
-                    experience: `${formData.minExperience}+ years`,
-                    required_skills: formData.requiredSkills,
-                    key_responsibilities: responsibilitiesArray,
-                    recruiter_id: recruiterInfo.id,
-                    recruiter_email: recruiterInfo.email,
-                    recruiter_name: recruiterInfo.name,
-                    organization_name: recruiterInfo.organization,
-                    aptitude_questions: aptitudeQuestions,
-                    coding_problems: codingProblems,
-                    status: "draft"
-                  };
-                  
-                  console.log('=== PAYLOAD DEBUG ===');
-                  console.log(JSON.stringify(payload, null, 2));
-                  console.log('===================');
-                  
-                  alert('Payload logged to console! Press F12 to view.');
-                }}
-                className="w-full px-4 py-2 rounded-lg bg-yellow-500/20 text-yellow-400 border border-yellow-500/40 hover:bg-yellow-500/30 transition-all text-sm"
-              >
-                Log Payload to Console
-              </button>
-              
-              <div className="p-4 rounded-lg bg-muted/30 border border-border/50">
-                <div className="text-xs space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Job Title:</span>
-                    <span className="text-foreground font-mono">{formData.title || '(empty)'}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Min Experience:</span>
-                    <span className="text-foreground font-mono">{formData.minExperience || '(empty)'}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Skills Count:</span>
-                    <span className="text-foreground font-mono">{formData.requiredSkills.length}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Aptitude Questions:</span>
-                    <span className="text-foreground font-mono">{aptitudeQuestions.length}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Coding Problems:</span>
-                    <span className="text-foreground font-mono">{codingProblems.length}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </GlassCard>
-
-        <button 
-          onClick={handleSubmit}
-          disabled={isSubmitting}
-          className="w-full py-3 rounded-lg bg-gradient-to-r from-primary to-neon-cyan text-primary-foreground font-semibold text-sm tracking-wide hover:shadow-[0_0_30px_hsl(185_100%_50%/0.4)] transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isSubmitting ? (
-            <>
-              <div className="w-4 h-4 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
-              Creating Job...
-            </>
-          ) : (
-            <>
-              <Save className="w-4 h-4" /> Create Job
-            </>
-          )}
-        </button>
+          <button
+            onClick={() => navigate('/recruiter/jobs-created')}
+            className="px-6 py-3 rounded-lg border border-border/50 text-foreground hover:bg-muted/30 transition-all"
+          >
+            Cancel
+          </button>
+        </div>
       </div>
     </DashboardLayout>
   );
 };
 
-export default CreateJob;
+export default EditJob;

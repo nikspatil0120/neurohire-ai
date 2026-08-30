@@ -1,11 +1,12 @@
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import GlassCard from "@/components/GlassCard";
-import { LayoutDashboard, Target, Building2, FileText, User, LogOut, TrendingUp, Star, Lightbulb } from "lucide-react";
+import { LayoutDashboard, Target, Building2, FileText, User, LogOut, TrendingUp, Star, Lightbulb, Briefcase } from "lucide-react";
 
 const navItems = [
   { label: "Dashboard", href: "/candidate/dashboard", icon: LayoutDashboard },
   { label: "Practice", href: "/candidate/practice", icon: Target },
   { label: "Company Interviews", href: "/candidate/interviews", icon: Building2 },
+  { label: "Incoming Opportunities", href: "/candidate/incoming-opportunities", icon: Briefcase },
   { label: "Reports", href: "/candidate/reports", icon: FileText },
   { label: "Profile", href: "/candidate/profile", icon: User },
   { label: "Logout", href: "/login", icon: LogOut },
