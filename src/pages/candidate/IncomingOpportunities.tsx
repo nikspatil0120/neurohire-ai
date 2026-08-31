@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import GlassCard from "@/components/GlassCard";
-import { LayoutDashboard, Target, Building2, FileText, User, LogOut, Briefcase, MapPin, DollarSign, Clock, Calendar, Check, X } from "lucide-react";
+import { LayoutDashboard, Target, Building2, FileText, User, LogOut, Briefcase, Clock, Calendar, Check, X } from "lucide-react";
 
 const navItems = [
   { label: "Dashboard", href: "/candidate/dashboard", icon: LayoutDashboard },
@@ -16,13 +16,13 @@ const navItems = [
 interface JobOpportunity {
   _id: string;
   title: string;
-  company: string;
-  location: string;
-  salary: string;
+  organization_name: string;
+  recruiter_name: string;
   experience: string;
   required_skills: string[];
   key_responsibilities: string[];
-  status: "pending" | "accepted" | "rejected";
+  status: "pending" | "accepted" | "rejected" | "published" | "draft";
+  is_active: boolean;
   created_at: string;
 }
 
@@ -37,39 +37,22 @@ const IncomingOpportunities = () => {
   const loadOpportunities = async () => {
     setIsLoading(true);
     try {
-      const userStr = localStorage.getItem('user');
-      if (!userStr) {
-        setOpportunities([]);
-        return;
-      }
-
-      const user = JSON.parse(userStr);
-      
-      // Fetch all published jobs
-      const response = await fetch('http://localhost:8000/api/v1/jobs/');
+      // Fetch all active jobs (published jobs)
+      const response = await fetch('http://localhost:8000/api/v1/jobs/?active_only=true');
       if (response.ok) {
-        const data = await response.json();
-        const jobsArray = Array.isArray(data) ? data : [];
+        const jobs = await response.json();
+        console.log('Fetched jobs:', jobs); // Debug log
         
-        // Filter only published jobs
-        const publishedJobs = jobsArray.filter((job: any) => 
-          job.status === "published" || job.is_active === true
-        );
+        // Set all jobs with pending status for the candidate
+        const jobsWithStatus = jobs.map((job: any) => ({
+          ...job,
+          status: "pending" // Default status for new opportunities
+        }));
         
-        // Match jobs with candidate's skills (simple matching)
-        const userSkills = user.skills || [];
-        const matchedJobs = publishedJobs.filter((job: any) => {
-          const jobSkills = job.required_skills || [];
-          // Match if at least one skill matches
-          return jobSkills.some((skill: string) => 
-            userSkills.some((userSkill: string) => 
-              userSkill.toLowerCase().includes(skill.toLowerCase()) || 
-              skill.toLowerCase().includes(userSkill.toLowerCase())
-            )
-          );
-        });
-
-        setOpportunities(matchedJobs);
+        setOpportunities(jobsWithStatus);
+      } else {
+        console.error('Failed to fetch jobs:', response.status, response.statusText);
+        setOpportunities([]);
       }
     } catch (error) {
       console.error('Error loading opportunities:', error);
@@ -136,9 +119,9 @@ const IncomingOpportunities = () => {
           <GlassCard variant="neon" hover={false}>
             <div className="text-center py-12">
               <Briefcase className="w-16 h-16 mx-auto mb-4 text-muted-foreground opacity-50" />
-              <h3 className="text-lg font-semibold text-foreground mb-2">No Opportunities Yet</h3>
+              <h3 className="text-lg font-semibold text-foreground mb-2">No Opportunities Available</h3>
               <p className="text-muted-foreground mb-4">
-                Update your profile with skills to receive matching job opportunities
+                There are currently no job openings. Check back later for new opportunities!
               </p>
             </div>
           </GlassCard>
@@ -152,7 +135,7 @@ const IncomingOpportunities = () => {
                     <div>
                       <h3 className="text-xl font-semibold text-foreground mb-1">{opportunity.title}</h3>
                       <p className="text-sm text-muted-foreground">
-                        {opportunity.company} • {opportunity.location}
+                        {opportunity.organization_name} • {opportunity.recruiter_name}
                       </p>
                     </div>
                     {opportunity.status === "accepted" && (
@@ -170,20 +153,12 @@ const IncomingOpportunities = () => {
                   {/* Details */}
                   <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
                     <div className="flex items-center gap-1">
-                      <MapPin className="w-4 h-4" />
-                      <span>{opportunity.location}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <DollarSign className="w-4 h-4" />
-                      <span>{opportunity.salary}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
                       <Clock className="w-4 h-4" />
                       <span>{opportunity.experience}</span>
                     </div>
                     <div className="flex items-center gap-1">
                       <Calendar className="w-4 h-4" />
-                      <span>{new Date(opportunity.created_at).toLocaleDateString()}</span>
+                      <span>Posted: {new Date(opportunity.created_at).toLocaleDateString()}</span>
                     </div>
                   </div>
 
