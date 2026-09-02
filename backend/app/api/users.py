@@ -621,6 +621,107 @@ async def save_recruiter_profile_data(profile_data: RecruiterProfileDataRequest,
             detail=f"Error saving recruiter profile data: {str(e)}"
         )
 
+@router.get("/recruiter-info/{email}")
+async def get_recruiter_info(email: str):
+    """Get recruiter's company info (logo and organization name) by email"""
+    try:
+        from app.core.database import get_mongo_db
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        mongodb = get_mongo_db()
+        
+        if mongodb is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Database not available"
+            )
+        
+        users_collection = mongodb["users"]
+        user = await users_collection.find_one({"email": email})
+        
+        if not user:
+            return {"logo": "", "organization_name": ""}
+        
+        return {
+            "logo": user.get("organization_logo", ""),
+            "organization_name": user.get("organization_name", "")
+        }
+        
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error fetching recruiter info: {e}")
+        return {"logo": "", "organization_name": ""}
+
+@router.get("/recruiter-logo/{email}")
+async def get_recruiter_logo(email: str):
+    """Get recruiter's company logo by email"""
+    try:
+        from app.core.database import get_mongo_db
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        mongodb = get_mongo_db()
+        
+        if mongodb is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Database not available"
+            )
+        
+        users_collection = mongodb["users"]
+        user = await users_collection.find_one({"email": email})
+        
+        if not user:
+            return {"logo": ""}
+        
+        return {"logo": user.get("organization_logo", "")}
+        
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error fetching recruiter logo: {e}")
+        return {"logo": ""}
+
+@router.get("/debug/recruiter/{email}")
+async def debug_recruiter_data(email: str):
+    """Debug endpoint to check recruiter data including logo"""
+    try:
+        from app.core.database import get_mongo_db
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        mongodb = get_mongo_db()
+        
+        if mongodb is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Database not available"
+            )
+        
+        users_collection = mongodb["users"]
+        user = await users_collection.find_one({"email": email})
+        
+        if not user:
+            return {"error": "User not found"}
+        
+        # Return relevant fields
+        return {
+            "email": user.get("email"),
+            "role": user.get("role"),
+            "organization_name": user.get("organization_name"),
+            "organization_logo": user.get("organization_logo"),
+            "has_logo": bool(user.get("organization_logo")),
+            "logo_length": len(user.get("organization_logo", "")) if user.get("organization_logo") else 0
+        }
+        
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error in debug endpoint: {e}")
+        return {"error": str(e)}
+
 @router.get("/recruiter-profile/data")
 async def get_recruiter_profile_data(email: str = None):
     """Get recruiter profile data from MongoDB"""

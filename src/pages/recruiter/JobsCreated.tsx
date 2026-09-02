@@ -4,7 +4,7 @@ import DashboardLayout from "@/components/layout/DashboardLayout";
 import GlassCard from "@/components/GlassCard";
 import { 
   LayoutDashboard, FilePlus, Database, Trophy, MessageCircle, LogOut, 
-  Briefcase, Eye, Edit, Trash2, Globe, FileText
+  Briefcase, Eye, Edit, Trash2, Globe, FileText, X, Check
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -28,6 +28,9 @@ interface Job {
   created_at: string;
   recruiter_name: string;
   organization_name: string;
+  deleted_by_recruiter?: boolean;
+  admin_deleted?: boolean;
+  candidates_deleted?: boolean;
 }
 
 const JobsCreated = () => {
@@ -35,6 +38,8 @@ const JobsCreated = () => {
   const { toast } = useToast();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [deleteModalOpen, setDeleteModalOpen] = useState<string | null>(null);
+  const [selectedDeleteTypes, setSelectedDeleteTypes] = useState<string[]>([]);
 
   useEffect(() => {
     loadJobs();
@@ -145,18 +150,22 @@ const JobsCreated = () => {
     }
   };
 
-  const deleteJob = async (jobId: string) => {
-    if (!confirm('Are you sure you want to delete this job?')) return;
+  const deleteJob = async (jobId: string, deleteType: string) => {
+    const deleteMessages = {
+      'admin': 'Delete for admin',
+      'candidates': 'Delete for candidates', 
+      'me': 'Delete for me'
+    };
 
     try {
-      const response = await fetch(`http://localhost:8000/api/v1/jobs/${jobId}`, {
+      const response = await fetch(`http://localhost:8000/api/v1/jobs/${jobId}?deleteType=${deleteType}`, {
         method: 'DELETE'
       });
 
       if (response.ok) {
         toast({
           title: "Success",
-          description: "Job deleted successfully"
+          description: `Job ${deleteMessages[deleteType as keyof typeof deleteMessages]} successfully`
         });
         loadJobs();
       } else {
@@ -170,6 +179,62 @@ const JobsCreated = () => {
         variant: "destructive"
       });
     }
+  };
+
+  const handleDeleteClick = (jobId: string) => {
+    setDeleteModalOpen(jobId);
+    setSelectedDeleteTypes([]);
+  };
+
+  const handleDeleteTypeToggle = (deleteType: string) => {
+    setSelectedDeleteTypes(prev => 
+      prev.includes(deleteType) 
+        ? prev.filter(type => type !== deleteType)
+        : [...prev, deleteType]
+    );
+  };
+
+  const confirmDelete = async () => {
+    if (selectedDeleteTypes.length === 0 || !deleteModalOpen) return;
+    
+    const deleteMessages = {
+      'admin': 'Delete for admin',
+      'candidates': 'Delete for candidates', 
+      'me': 'Delete for me'
+    };
+    
+    // Check if all three options are selected
+    const allSelected = selectedDeleteTypes.length === 3 && 
+                        selectedDeleteTypes.includes('admin') && 
+                        selectedDeleteTypes.includes('candidates') && 
+                        selectedDeleteTypes.includes('me');
+    
+    if (allSelected) {
+      // Complete deletion from database
+      if (confirm('Are you sure you want to completely delete this job from the database? This action cannot be undone.')) {
+        await deleteJob(deleteModalOpen, 'all');
+        setDeleteModalOpen(null);
+        setSelectedDeleteTypes([]);
+      }
+    } else {
+      // Partial deletion with visibility logic
+      const selectedMessage = selectedDeleteTypes.map(type => deleteMessages[type as keyof typeof deleteMessages]).join(', ');
+      
+      if (confirm(`Are you sure you want to ${selectedMessage}?`)) {
+        // Delete for each selected type
+        for (const deleteType of selectedDeleteTypes) {
+          await deleteJob(deleteModalOpen, deleteType);
+        }
+        // Close modal after all deletions are complete
+        setDeleteModalOpen(null);
+        setSelectedDeleteTypes([]);
+      }
+    }
+  };
+
+  const closeDeleteModal = () => {
+    setDeleteModalOpen(null);
+    setSelectedDeleteTypes([]);
   };
 
   if (isLoading) {
@@ -285,7 +350,7 @@ const JobsCreated = () => {
                         <Edit className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => deleteJob(job._id)}
+                        onClick={() => handleDeleteClick(job._id)}
                         className="p-2 rounded-lg bg-red-500/20 text-red-400 border border-red-500/40 hover:bg-red-500/30 transition-all"
                         title="Delete Job"
                       >
@@ -299,6 +364,111 @@ const JobsCreated = () => {
           </div>
         )}
       </div>
+
+      {/* Delete Modal */}
+      {deleteModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-card border border-border/50 rounded-xl shadow-2xl max-w-md w-full">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-6 border-b border-border/30">
+              <h3 className="text-lg font-semibold text-foreground">Select Delete Option</h3>
+              <button
+                onClick={closeDeleteModal}
+                className="p-2 rounded-lg bg-muted/20 hover:bg-muted/30 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6">
+              <p className="text-sm text-muted-foreground mb-6">
+                Choose how you want to delete this job posting:
+              </p>
+
+              <div className="space-y-3">
+                <label className={`flex items-center gap-3 p-4 rounded-lg border transition-all cursor-pointer ${
+                  selectedDeleteTypes.includes('admin') 
+                    ? 'border-red-500/50 bg-red-500/10' 
+                    : 'border-border/50 hover:border-red-500/50 hover:bg-red-500/10'
+                }`}>
+                  <input
+                    type="checkbox"
+                    checked={selectedDeleteTypes.includes('admin')}
+                    onChange={() => handleDeleteTypeToggle('admin')}
+                    className="w-4 h-4 text-red-500 accent-red-500 rounded"
+                  />
+                  <div className="p-2 rounded-lg bg-red-500/20 text-red-400">
+                    <Trash2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="font-medium text-foreground">Delete for admin</div>
+                    <div className="text-xs text-muted-foreground">Remove from admin view only</div>
+                  </div>
+                </label>
+
+                <label className={`flex items-center gap-3 p-4 rounded-lg border transition-all cursor-pointer ${
+                  selectedDeleteTypes.includes('candidates') 
+                    ? 'border-orange-500/50 bg-orange-500/10' 
+                    : 'border-border/50 hover:border-orange-500/50 hover:bg-orange-500/10'
+                }`}>
+                  <input
+                    type="checkbox"
+                    checked={selectedDeleteTypes.includes('candidates')}
+                    onChange={() => handleDeleteTypeToggle('candidates')}
+                    className="w-4 h-4 text-orange-500 accent-orange-500 rounded"
+                  />
+                  <div className="p-2 rounded-lg bg-orange-500/20 text-orange-400">
+                    <Trash2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="font-medium text-foreground">Delete for candidates</div>
+                    <div className="text-xs text-muted-foreground">Remove from candidate view only</div>
+                  </div>
+                </label>
+
+                <label className={`flex items-center gap-3 p-4 rounded-lg border transition-all cursor-pointer ${
+                  selectedDeleteTypes.includes('me') 
+                    ? 'border-blue-500/50 bg-blue-500/10' 
+                    : 'border-border/50 hover:border-blue-500/50 hover:bg-blue-500/10'
+                }`}>
+                  <input
+                    type="checkbox"
+                    checked={selectedDeleteTypes.includes('me')}
+                    onChange={() => handleDeleteTypeToggle('me')}
+                    className="w-4 h-4 text-blue-500 accent-blue-500 rounded"
+                  />
+                  <div className="p-2 rounded-lg bg-blue-500/20 text-blue-400">
+                    <Trash2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="font-medium text-foreground">Delete for me</div>
+                    <div className="text-xs text-muted-foreground">Remove from my view only</div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-6 border-t border-border/30 flex justify-end gap-3">
+              <button
+                onClick={closeDeleteModal}
+                className="px-6 py-2 rounded-lg bg-muted/20 text-muted-foreground hover:bg-muted/30 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                disabled={selectedDeleteTypes.length === 0}
+                className="px-6 py-2 rounded-lg bg-red-500/20 text-red-400 border border-red-500/40 hover:bg-red-500/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                <Check className="w-4 h-4" />
+                Confirm Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 };
