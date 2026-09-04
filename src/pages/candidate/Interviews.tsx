@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import GlassCard from "@/components/GlassCard";
 import {
   LayoutDashboard, Target, Building2, FileText, User, LogOut, Briefcase,
   Clock, Calendar, Check, X, AlertCircle, ChevronRight, Building,
-  AlignLeft, BookOpen, Code, Users, ClockIcon,
+  AlignLeft, BookOpen, Code, Users, ClockIcon, Lock, Brain,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
@@ -70,18 +71,21 @@ interface Application {
   coding_priority?: number;
   aptitude_questions?: any[];
   coding_problems?: any[];
+  job_status?: string;  // backend-computed: "published" | "expired" | "draft"
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 const Interviews = () => {
   const { toast } = useToast();
   const { user: authUser } = useAuth();
+  const navigate = useNavigate();
 
   const [applications,  setApplications]  = useState<Application[]>([]);
   const [isLoading,     setIsLoading]     = useState(true);
   const [selectedApp,   setSelectedApp]   = useState<Application | null>(null);
   const [showModal,     setShowModal]     = useState(false);
   const [withdrawing,   setWithdrawing]   = useState(false);
+  const [enteringInterview, setEnteringInterview] = useState(false);
 
   // ── Load applications + enrich with job details ──────────────────────────────
   useEffect(() => { loadApplications(); }, [authUser]);
@@ -126,6 +130,7 @@ const Interviews = () => {
             coding_problems:    job.coding_problems    || [],
             company_logo:       info.logo              || "",
             organization_name:  app.organization_name  || info.organization_name || job.organization_name || "",
+            job_status:         job.status             || "",
           };
         } catch {
           return app;
@@ -159,6 +164,16 @@ const Interviews = () => {
     }
   };
 
+  // ── Enter interview with pre-entry countdown ──────────────────────────────
+  const handleStartInterview = () => {
+    setShowModal(false);
+    setEnteringInterview(true);
+    setTimeout(() => {
+      setEnteringInterview(false);
+      navigate("/candidate/interview-room");
+    }, 3000);
+  };
+
   // ── Stats ─────────────────────────────────────────────────────────────────────
   const scheduledCount = applications.filter(a =>
     ["applied","test_pending","test_started","interview_pending"].includes(a.application_status)
@@ -181,6 +196,7 @@ const Interviews = () => {
   }
 
   return (
+    <>
     <DashboardLayout navItems={navItems} title="COMPANY INTERVIEWS">
       <div className="space-y-6">
 
@@ -304,17 +320,198 @@ const Interviews = () => {
                 <StatusBadge status={selectedApp.application_status} />
               </div>
 
-              {/* Slot info */}
-              <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-muted/20 border border-border/40">
-                <ClockIcon className="w-5 h-5 text-primary flex-shrink-0" />
-                <div>
-                  <p className="text-sm font-medium text-foreground">Your Scheduled Slot</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {selectedApp.slot_label ? `${selectedApp.slot_label} · ` : ""}
-                    {selectedApp.slot_date} at {selectedApp.slot_start_time}
-                  </p>
-                </div>
-              </div>
+              {/* Test deadline — always shown for applied jobs */}
+              {(() => {
+                const deadline = selectedApp.end_date
+                  ? (() => {
+                      const d = new Date(
+                        selectedApp.end_date.endsWith("Z")
+                          ? selectedApp.end_date
+                          : selectedApp.end_date + "Z"
+                      );
+                      d.setUTCDate(d.getUTCDate() + 3);
+                      return d.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
+                    })()
+                  : null;
+                return (
+                  <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30">
+                    <ClockIcon className="w-5 h-5 text-amber-400 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium text-foreground">Test Deadline</p>
+                      <p className="text-xs text-amber-400/90 mt-0.5">
+                        {deadline
+                          ? `Complete all assigned tests by ${deadline} (3 days after application closes)`
+                          : "Complete all assigned tests within 3 days after the application period closes"}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── Round progress — visible only after application deadline has passed ── */}
+              {(() => {
+                // Only show after application end date (compare calendar date, not exact time)
+                // Also trigger immediately if the backend has already marked the job as expired
+                if (!selectedApp.end_date) return null;
+                const endDateStr = selectedApp.end_date.endsWith("Z")
+                  ? selectedApp.end_date
+                  : selectedApp.end_date + "Z";
+                const endDay = new Date(endDateStr);
+                // Normalise both to start-of-day in LOCAL time for a date-only comparison
+                const endMidnight = new Date(endDay.getFullYear(), endDay.getMonth(), endDay.getDate());
+                const todayMidnight = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+                const isExpired = selectedApp.job_status === "expired" || todayMidnight >= endMidnight;
+                if (!isExpired) return null;
+
+                // Build ordered round list from job config
+                type RoundDef = { key: string; label: string; icon: JSX.Element; color: string };
+                const rounds: RoundDef[] = [];
+
+                const aptPri  = selectedApp.aptitude_priority  ?? null;
+                const codPri  = selectedApp.coding_priority    ?? null;
+
+                // Collect optional rounds sorted by their priority number
+                const optional: { pri: number; def: RoundDef }[] = [];
+                if (aptPri !== null) {
+                  optional.push({
+                    pri: aptPri,
+                    def: {
+                      key: "aptitude",
+                      label: "Aptitude Test",
+                      icon: <BookOpen className="w-5 h-5" />,
+                      color: "orange",
+                    },
+                  });
+                }
+                if (codPri !== null) {
+                  optional.push({
+                    pri: codPri,
+                    def: {
+                      key: "coding",
+                      label: "Coding Round",
+                      icon: <Code className="w-5 h-5" />,
+                      color: "blue",
+                    },
+                  });
+                }
+                optional.sort((a, b) => a.pri - b.pri);
+                optional.forEach(o => rounds.push(o.def));
+
+                // Interview is always last
+                rounds.push({
+                  key: "interview",
+                  label: "Interview",
+                  icon: <Building2 className="w-5 h-5" />,
+                  color: "purple",
+                });
+
+                // ── Determine which rounds are done / current / locked ──────────
+                // Map application_status → how many rounds are cleared
+                const st = selectedApp.application_status;
+                // cleared = rounds the candidate has passed
+                let clearedKeys: string[] = [];
+                if (st === "selected" || st === "rejected") {
+                  // all done
+                  clearedKeys = rounds.map(r => r.key);
+                } else if (st === "interview_pending") {
+                  // passed everything before interview
+                  clearedKeys = rounds.filter(r => r.key !== "interview").map(r => r.key);
+                } else if (st === "test_completed") {
+                  // passed first round (aptitude if present, else coding)
+                  if (rounds.length > 1) clearedKeys = [rounds[0].key];
+                }
+
+                // current_round from app tells us which round is active now
+                const activeKey = selectedApp.current_round || rounds[0]?.key;
+
+                // ── Color helpers ────────────────────────────────────────────────
+                const colorMap: Record<string, { bg: string; border: string; text: string; btn: string }> = {
+                  orange: {
+                    bg: "bg-orange-500/10", border: "border-orange-500/30",
+                    text: "text-orange-400", btn: "bg-orange-500 hover:bg-orange-600",
+                  },
+                  blue: {
+                    bg: "bg-blue-500/10", border: "border-blue-500/30",
+                    text: "text-blue-400", btn: "bg-blue-500 hover:bg-blue-600",
+                  },
+                  purple: {
+                    bg: "bg-purple-500/10", border: "border-purple-500/30",
+                    text: "text-purple-400", btn: "bg-purple-500 hover:bg-purple-600",
+                  },
+                };
+
+                return (
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-semibold text-foreground">Your Rounds</h3>
+                    {rounds.map((round, idx) => {
+                      const c       = colorMap[round.color];
+                      const cleared = clearedKeys.includes(round.key);
+                      // A round is unlocked if:
+                      // - it's the first round, OR
+                      // - all previous rounds are cleared
+                      const prevCleared = rounds.slice(0, idx).every(r => clearedKeys.includes(r.key));
+                      const isUnlocked  = idx === 0 || prevCleared;
+                      const isCurrent   = isUnlocked && !cleared && round.key === activeKey;
+
+                      if (cleared) {
+                        // ── Cleared state ──────────────────────────────────────
+                        return (
+                          <div key={round.key}
+                            className="flex items-center gap-3 px-4 py-3 rounded-xl bg-green-500/10 border border-green-500/30">
+                            <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0">
+                              <Check className="w-4 h-4 text-green-400" />
+                            </div>
+                            <div className="flex-1">
+                              <p className="text-sm font-medium text-foreground">{round.label}</p>
+                              <p className="text-xs text-green-400 mt-0.5">Cleared ✓</p>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      if (isUnlocked) {
+                        // ── Active / unlocked state ────────────────────────────
+                        return (
+                          <div key={round.key}
+                            className={`flex items-center gap-3 px-4 py-3 rounded-xl ${c.bg} border ${c.border}`}>
+                            <div className={`w-8 h-8 rounded-full bg-current/10 flex items-center justify-center flex-shrink-0 ${c.text}`}>
+                              {round.icon}
+                            </div>
+                            <div className="flex-1">
+                              <p className="text-sm font-medium text-foreground">{round.label}</p>
+                              <p className={`text-xs mt-0.5 ${c.text}`}>
+                                {isCurrent ? "Ready to start" : "Unlocked"}
+                              </p>
+                            </div>
+                            <button
+                              onClick={handleStartInterview}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-semibold text-white ${c.btn} transition-colors flex items-center gap-1.5`}>
+                              <ChevronRight className="w-3.5 h-3.5" />
+                              Start
+                            </button>
+                          </div>
+                        );
+                      }
+
+                      // ── Locked state ───────────────────────────────────────────
+                      return (
+                        <div key={round.key}
+                          className="flex items-center gap-3 px-4 py-3 rounded-xl bg-muted/10 border border-border/20 opacity-50">
+                          <div className="w-8 h-8 rounded-full bg-muted/20 flex items-center justify-center flex-shrink-0">
+                            <Lock className="w-4 h-4 text-muted-foreground" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-sm font-medium text-muted-foreground">{round.label}</p>
+                            <p className="text-xs text-muted-foreground/60 mt-0.5">
+                              Complete {rounds[idx - 1]?.label} first
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
 
               {/* Job meta */}
               <div className="flex flex-wrap gap-3 text-sm text-muted-foreground">
@@ -421,6 +618,53 @@ const Interviews = () => {
         </div>
       )}
     </DashboardLayout>
+
+      {/* ── Pre-interview entry overlay ── */}
+      {enteringInterview && (
+        <div className="fixed inset-0 z-[100] bg-background flex flex-col items-center justify-center gap-8">
+          {/* Pulsing brain icon */}
+          <div className="relative">
+            <div className="w-28 h-28 rounded-full bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center pulse-glow">
+              <Brain className="w-14 h-14 text-primary" />
+            </div>
+            {/* Ripple rings */}
+            <span className="absolute inset-0 rounded-full border border-primary/40 animate-ping" />
+            <span className="absolute inset-[-12px] rounded-full border border-primary/20 animate-ping" style={{ animationDelay: "0.3s" }} />
+          </div>
+
+          {/* Message */}
+          <div className="text-center space-y-3">
+            <h1 className="font-display text-3xl tracking-widest text-foreground neon-glow">
+              ENTERING INTERVIEW ROOM
+            </h1>
+            <p className="text-muted-foreground text-sm">
+              Get ready — your AI interview is about to begin
+            </p>
+          </div>
+
+          {/* Animated dots */}
+          <div className="flex items-center gap-2">
+            {[0, 0.2, 0.4].map((delay, i) => (
+              <div
+                key={i}
+                className="w-2.5 h-2.5 rounded-full bg-primary animate-glow-pulse"
+                style={{ animationDelay: `${delay}s` }}
+              />
+            ))}
+          </div>
+
+          {/* Thin progress bar at bottom */}
+          <div className="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-primary to-secondary"
+            style={{ animation: "grow-width 3s linear forwards" }} />
+
+          <style>{`
+            @keyframes grow-width { from { width: 0% } to { width: 100% } }
+            @keyframes animate-fade-in { from { opacity: 0 } to { opacity: 1 } }
+            .animate-fade-in { animation: animate-fade-in 0.3s ease-out; }
+          `}</style>
+        </div>
+      )}
+    </>
   );
 };
 
