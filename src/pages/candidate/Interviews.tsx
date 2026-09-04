@@ -7,6 +7,7 @@ import {
   AlignLeft, BookOpen, Code, Users, ClockIcon,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 
 const API = "http://localhost:8000/api/v1";
 
@@ -74,6 +75,7 @@ interface Application {
 // ─────────────────────────────────────────────────────────────────────────────
 const Interviews = () => {
   const { toast } = useToast();
+  const { user: authUser } = useAuth();
 
   const [applications,  setApplications]  = useState<Application[]>([]);
   const [isLoading,     setIsLoading]     = useState(true);
@@ -81,20 +83,15 @@ const Interviews = () => {
   const [showModal,     setShowModal]     = useState(false);
   const [withdrawing,   setWithdrawing]   = useState(false);
 
-  const getUser = () => {
-    try { return JSON.parse(localStorage.getItem("user") || "{}"); } catch { return {}; }
-  };
-
   // ── Load applications + enrich with job details ──────────────────────────────
-  useEffect(() => { loadApplications(); }, []);
+  useEffect(() => { loadApplications(); }, [authUser]);
 
   const loadApplications = async () => {
-    const user = getUser();
-    if (!user.id) { setIsLoading(false); return; }
+    if (!authUser?.id) { setIsLoading(false); return; }
 
     setIsLoading(true);
     try {
-      const res = await fetch(`${API}/applications/candidate/${user.id}`);
+      const res = await fetch(`${API}/applications/candidate/${authUser.id}`);
       if (!res.ok) throw new Error("Failed to load");
       const data = await res.json();
       const apps: Application[] = data.applications || [];
@@ -150,7 +147,7 @@ const Interviews = () => {
     try {
       const res = await fetch(`${API}/applications/${appId}`, { method: "DELETE" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Failed to withdraw");
+      if (!res.ok) throw new Error(data.detail || data.error || "Failed to withdraw");
 
       setApplications(prev => prev.filter(a => a._id !== appId));
       setShowModal(false);

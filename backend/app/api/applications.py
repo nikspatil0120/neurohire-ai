@@ -283,6 +283,18 @@ async def apply_for_job(app_data: ApplicationCreate):
                 detail="You have already applied for this job"
             )
 
+        # ── Resolve organization_name (job field → recruiter user doc fallback) ──
+        organization_name = job.get("organization_name", "")
+        if not organization_name:
+            recruiter_email = job.get("recruiter_email", "")
+            if recruiter_email:
+                try:
+                    recruiter_user = await mongodb["users"].find_one({"email": recruiter_email})
+                    if recruiter_user:
+                        organization_name = recruiter_user.get("organization_name", "")
+                except Exception:
+                    pass
+
         # ── Create application ────────────────────────────────────────
         now = datetime.utcnow().isoformat()
         application_doc = {
@@ -292,7 +304,7 @@ async def apply_for_job(app_data: ApplicationCreate):
             "job_id": str(job_oid),
             "job_title": job.get("title", ""),
             "recruiter_email": job.get("recruiter_email", ""),
-            "organization_name": job.get("organization_name", ""),
+            "organization_name": organization_name,
             "slot_id": app_data.slot_id or "",
             "slot_date": "",
             "slot_start_time": "",

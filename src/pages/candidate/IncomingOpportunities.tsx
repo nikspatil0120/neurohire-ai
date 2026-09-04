@@ -7,6 +7,7 @@ import {
   AlignLeft, BookOpen, Code, ChevronRight, AlertCircle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 
 const API = "http://localhost:8000/api/v1";
 
@@ -78,12 +79,19 @@ const StatusBadge = ({ status }: { status: string }) => {
 };
 
 // ── Validity helpers ──────────────────────────────────────────────────────────
-const isJobExpired = (job: JobOpportunity) =>
-  !!job.end_date && new Date() > new Date(job.end_date);
+const isJobExpired = (job: JobOpportunity) => {
+  // Use backend-computed status first (most reliable)
+  if (job.status === "expired") return true;
+  // Fallback: parse end_date locally (append Z so JS treats it as UTC)
+  if (!job.end_date) return false;
+  const endIso = job.end_date.endsWith("Z") ? job.end_date : job.end_date + "Z";
+  return new Date() > new Date(endIso);
+};
 
 const jobValidity = (job: JobOpportunity): string => {
   if (!job.end_date) return "";
-  const diff = Math.ceil((new Date(job.end_date).getTime() - Date.now()) / 86400000);
+  const endIso = job.end_date.endsWith("Z") ? job.end_date : job.end_date + "Z";
+  const diff = Math.ceil((new Date(endIso).getTime() - Date.now()) / 86400000);
   if (diff < 0) return "Expired";
   if (diff === 0) return "Closes today";
   return `${diff} day${diff !== 1 ? "s" : ""} left`;
@@ -95,6 +103,7 @@ const fmtDate = (iso?: string) =>
 // ─────────────────────────────────────────────────────────────────────────────
 const IncomingOpportunities = () => {
   const { toast } = useToast();
+  const { user: authUser } = useAuth();
 
   const [opportunities, setOpportunities] = useState<JobOpportunity[]>([]);
   const [applications,  setApplications]  = useState<Record<string, ApplicationRecord>>({});
@@ -104,20 +113,15 @@ const IncomingOpportunities = () => {
   const [applying,      setApplying]      = useState(false);
   const [withdrawing,   setWithdrawing]   = useState(false);
 
-  const getUser = () => {
-    try { return JSON.parse(localStorage.getItem("user") || "{}"); } catch { return {}; }
-  };
-
   // ── Load data ─────────────────────────────────────────────────────────────────
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(); }, [authUser]);
 
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const user = getUser();
       const [jobsRes, appsRes] = await Promise.all([
         fetch(`${API}/jobs/?active_only=true`),
-        user.id ? fetch(`${API}/applications/candidate/${user.id}`) : Promise.resolve(null),
+        authUser?.id ? fetch(`${API}/applications/candidate/${authUser.id}`) : Promise.resolve(null),
       ]);
 
       if (jobsRes.ok) {
@@ -155,8 +159,7 @@ const IncomingOpportunities = () => {
 
   // ── Apply directly (no slot) ──────────────────────────────────────────────────
   const applyForJob = async (job: JobOpportunity) => {
-    const user = getUser();
-    if (!user.id) return toast({ title: "Error", description: "Please log in to apply", variant: "destructive" });
+    if (!authUser?.id) return toast({ title: "Error", description: "Please log in to apply", variant: "destructive" });
 
     const jobId = job._id || job.id;
     if (applications[jobId!]) {
@@ -171,14 +174,14 @@ const IncomingOpportunities = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           job_id: jobId,
-          candidate_id: user.id,
-          candidate_email: user.email,
-          candidate_name: user.name || user.full_name || "",
-          slot_id: "",   // no slot selection
+          candidate_id: authUser.id,
+          candidate_email: authUser.email,
+          candidate_name: authUser.name || "",
+          slot_id: "",
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Failed to apply");
+      if (!res.ok) throw new Error(data.detail || data.error || "Failed to apply");
 
       setApplications(prev => ({ ...prev, [jobId!]: data.application }));
       toast({ title: "Applied!", description: `Successfully applied to ${job.title}`, duration: 4000 });
@@ -196,7 +199,7 @@ const IncomingOpportunities = () => {
     try {
       const res = await fetch(`${API}/applications/${appId}`, { method: "DELETE" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Failed to withdraw");
+      if (!res.ok) throw new Error(data.detail || data.error || "Failed to withdraw");
 
       setApplications(prev => { const n = { ...prev }; delete n[jobId]; return n; });
       setShowJobModal(false);

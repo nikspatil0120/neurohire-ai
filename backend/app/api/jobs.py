@@ -193,7 +193,7 @@ async def create_job(job_data: JobCreate):
             detail=f"Error creating job: {str(e)}"
         )
 
-@router.get("/", response_model=List[JobResponse])
+@router.get("/")
 async def get_all_jobs(
     active_only: bool = True,
     skip: int = 0,
