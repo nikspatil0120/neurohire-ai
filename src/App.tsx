@@ -32,6 +32,7 @@ import RecruiterProfile from "./pages/recruiter/Profile";
 import CreateJob from "./pages/recruiter/CreateJob";
 import EditJob from "./pages/recruiter/EditJob";
 import JobsCreated from "./pages/recruiter/JobsCreated";
+import Applicants from "./pages/recruiter/Applicants";
 import QuestionDB from "./pages/recruiter/QuestionDB";
 import Rankings from "./pages/recruiter/Rankings";
 import Messaging from "./pages/recruiter/Messaging";
@@ -44,6 +45,7 @@ import AptitudeQuestions from "./pages/admin/AptitudeQuestions";
 import Recruiters from "./pages/admin/Recruiters";
 import Candidates from "./pages/admin/Candidates";
 import IncomingJobs from "./pages/admin/IncomingJobs";
+import AdminApplications from "./pages/admin/Applications";
 
 const queryClient = new QueryClient();
 
@@ -79,6 +81,7 @@ const App = () => (
                 <Route path="/recruiter/create-job" element={<CreateJob />} />
                 <Route path="/recruiter/edit-job/:jobId" element={<EditJob />} />
                 <Route path="/recruiter/jobs-created" element={<JobsCreated />} />
+                <Route path="/recruiter/applicants" element={<Applicants />} />
                 <Route path="/recruiter/questions" element={<QuestionDB />} />
                 <Route path="/recruiter/rankings" element={<Rankings />} />
                 <Route path="/recruiter/messages" element={<Messaging />} />
@@ -91,6 +94,7 @@ const App = () => (
                 <Route path="/admin/dsa-problems" element={<DSAProblems />} />
                 <Route path="/admin/aptitude-questions" element={<AptitudeQuestions />} />
                 <Route path="/admin/incoming-jobs" element={<IncomingJobs />} />
+                <Route path="/admin/applications" element={<AdminApplications />} />
 
                 <Route path="*" element={<NotFound />} />
               </Routes>
