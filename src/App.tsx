@@ -34,7 +34,7 @@ import EditJob from "./pages/recruiter/EditJob";
 import JobsCreated from "./pages/recruiter/JobsCreated";
 import Applicants from "./pages/recruiter/Applicants";
 import QuestionDB from "./pages/recruiter/QuestionDB";
-import Rankings from "./pages/recruiter/Rankings";
+import Reports from "./pages/recruiter/Rankings";
 import Messaging from "./pages/recruiter/Messaging";
 
 // Admin
@@ -83,7 +83,7 @@ const App = () => (
                 <Route path="/recruiter/jobs-created" element={<JobsCreated />} />
                 <Route path="/recruiter/applicants" element={<Applicants />} />
                 <Route path="/recruiter/questions" element={<QuestionDB />} />
-                <Route path="/recruiter/rankings" element={<Rankings />} />
+                <Route path="/recruiter/rankings" element={<Reports />} />
                 <Route path="/recruiter/messages" element={<Messaging />} />
 
                 {/* Admin */}
