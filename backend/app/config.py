@@ -38,7 +38,8 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     
     class Config:
-        env_file = ".env"
+        # Look for .env in backend/ dir or project root
+        env_file = (".env", "../.env")
         env_file_encoding = "utf-8"
         extra = "ignore"
     

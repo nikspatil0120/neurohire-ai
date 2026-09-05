@@ -46,6 +46,12 @@ class ApplicationStatusUpdate(BaseModel):
 class SlotChangeRequest(BaseModel):
     new_slot_id: str
 
+class RoundScoreUpdate(BaseModel):
+    round: str          # "aptitude" | "coding" | "interview"
+    score: float
+    max_score: Optional[float] = None
+    notes: Optional[str] = ""
+
 
 # ─────────────────────────────────────────────
 # Helpers
@@ -84,6 +90,8 @@ def application_helper(app) -> dict:
         "application_status": app.get("application_status", "applied"),
         "current_round": app.get("current_round", ""),
         "test_status": app.get("test_status", "pending"),
+        # Round scores – stored as { round: { score, max_score, notes, submitted_at } }
+        "scores": app.get("scores", {}),
         "applied_at": app.get("applied_at", ""),
         "created_at": app.get("created_at", ""),
         "updated_at": app.get("updated_at", ""),
@@ -655,6 +663,47 @@ async def withdraw_application(application_id: str):
         raise
     except Exception as e:
         logger.error(f"withdraw_application error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/{application_id}/score")
+async def update_round_score(application_id: str, update: RoundScoreUpdate):
+    """Recruiter/system sets a candidate's score for a specific round."""
+    try:
+        mongodb = get_mongo_db()
+        if mongodb is None:
+            raise HTTPException(status_code=503, detail="Database not available")
+
+        try:
+            app_oid = ObjectId(application_id)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid application_id")
+
+        now = datetime.utcnow().isoformat()
+        score_data = {
+            "score": update.score,
+            "max_score": update.max_score,
+            "notes": update.notes or "",
+            "submitted_at": now,
+        }
+
+        result = await mongodb["applications"].update_one(
+            {"_id": app_oid},
+            {"$set": {
+                f"scores.{update.round}": score_data,
+                "updated_at": now,
+            }}
+        )
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Application not found")
+
+        updated = await mongodb["applications"].find_one({"_id": app_oid})
+        return {"success": True, "application": application_helper(updated)}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"update_round_score error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

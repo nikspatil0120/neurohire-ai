@@ -11,13 +11,16 @@ logger = logging.getLogger(__name__)
 
 # PostgreSQL setup
 try:
-    engine = create_async_engine(
-        settings.POSTGRES_URL.replace("postgresql://", "postgresql+asyncpg://"),
-        echo=settings.DEBUG
-    )
+    if settings.POSTGRES_URL and settings.POSTGRES_URL.strip():
+        engine = create_async_engine(
+            settings.POSTGRES_URL.replace("postgresql://", "postgresql+asyncpg://"),
+            echo=settings.DEBUG
+        )
+    else:
+        logger.warning("POSTGRES_URL not set, skipping PostgreSQL")
+        engine = None
 except Exception as e:
     logger.warning(f"PostgreSQL connection failed: {e}")
-    # Create a dummy engine for development
     engine = None
 
 if engine:
