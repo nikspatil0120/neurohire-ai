@@ -4,7 +4,7 @@ import GlassCard from "@/components/GlassCard";
 import {
   LayoutDashboard, FilePlus, Database, BarChart2, MessageCircle, LogOut,
   User, Plus, Edit, Trash2, X, Check, ChevronDown, ChevronUp,
-  BookOpen, Code2, FlaskConical,
+  BookOpen, Code2, FlaskConical, LibraryBig,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -77,6 +77,63 @@ const QuestionDB = () => {
 
   const getEmail = () => {
     try { return JSON.parse(localStorage.getItem("user") || "{}").email || ""; } catch { return ""; }
+  };
+
+  // ── Admin DB picker ────────────────────────────────────────────────────────
+  const [adminPickerOpen, setAdminPickerOpen] = useState(false);
+  const [adminProblems, setAdminProblems] = useState<any[]>([]);
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminSelected, setAdminSelected] = useState<Set<string>>(new Set());
+  const [copying, setCopying] = useState(false);
+
+  const openAdminPicker = async () => {
+    setAdminPickerOpen(true);
+    setAdminSelected(new Set());
+    setAdminLoading(true);
+    try {
+      const res = await fetch(`${API}/problems/?published_only=true`);
+      const data = await res.json();
+      setAdminProblems(Array.isArray(data) ? data : []);
+    } catch { setAdminProblems([]); }
+    finally { setAdminLoading(false); }
+  };
+
+  const copyFromAdmin = async () => {
+    if (!adminSelected.size) return;
+    setCopying(true);
+    const email = getEmail();
+    const selected = adminProblems.filter(p => adminSelected.has(p.id));
+    let success = 0;
+    for (const p of selected) {
+      try {
+        const payload = {
+          recruiter_email: email,
+          question_type: "coding",
+          subtype: "mcq",
+          question_text: p.title,
+          description: p.description || "",
+          difficulty: p.difficulty || "Medium",
+          category: (p.tags || []).join(", "),
+          options: [],
+          correct_answer: null,
+          explanation: "",
+          tags: p.tags || [],
+          test_cases: (p.testCases || []).map((tc: any) => ({
+            input: Array.isArray(tc.inputs) ? tc.inputs.join(", ") : (tc.inputs || ""),
+            expected_output: tc.expectedOutput || "",
+            description: tc.visibility || "",
+          })),
+        };
+        const res = await fetch(`${API}/recruiter-questions/`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+        });
+        if (res.ok) success++;
+      } catch { /* continue */ }
+    }
+    toast({ title: "Copied", description: `${success} problem${success !== 1 ? "s" : ""} copied to your Question DB` });
+    setAdminPickerOpen(false);
+    loadQuestions();
+    setCopying(false);
   };
 
   const loadQuestions = async () => {
@@ -191,6 +248,12 @@ const QuestionDB = () => {
             className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-secondary/20 text-secondary border border-secondary/40 hover:bg-secondary/30 transition-all text-sm font-medium"
           >
             <Code2 className="w-4 h-4" /> Add Technical Question
+          </button>
+          <button
+            onClick={openAdminPicker}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-muted/20 text-muted-foreground border border-border/40 hover:bg-muted/30 hover:text-foreground transition-all text-sm font-medium"
+          >
+            <LibraryBig className="w-4 h-4" /> Copy from Admin DB
           </button>
         </div>
 
@@ -500,6 +563,89 @@ const QuestionDB = () => {
                 <Check className="w-4 h-4" />
                 {saving ? "Saving..." : editingId ? "Update" : "Add Question"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ── Admin DB Picker Modal ── */}
+      {adminPickerOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-start justify-center p-4 overflow-y-auto">
+          <div className="bg-card border border-border/50 rounded-xl shadow-2xl w-full max-w-2xl my-6">
+            <div className="flex items-center justify-between p-5 border-b border-border/30">
+              <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                <LibraryBig className="w-5 h-5 text-muted-foreground" />
+                Copy from Admin Question Bank
+              </h2>
+              <button onClick={() => setAdminPickerOpen(false)} className="p-2 rounded-lg bg-muted/20 hover:bg-muted/30 text-muted-foreground">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5">
+              {adminLoading ? (
+                <div className="flex items-center justify-center h-32">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+                </div>
+              ) : adminProblems.length === 0 ? (
+                <div className="text-center py-10">
+                  <Database className="w-10 h-10 mx-auto mb-3 text-muted-foreground opacity-40" />
+                  <p className="text-muted-foreground text-sm">No published problems in admin DB yet.</p>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                  {adminProblems.map(p => (
+                    <label key={p.id} className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
+                      adminSelected.has(p.id)
+                        ? "border-primary/50 bg-primary/10"
+                        : "border-border/30 hover:border-primary/30 bg-muted/5"
+                    }`}>
+                      <input
+                        type="checkbox"
+                        checked={adminSelected.has(p.id)}
+                        onChange={() => setAdminSelected(prev => {
+                          const s = new Set(prev);
+                          s.has(p.id) ? s.delete(p.id) : s.add(p.id);
+                          return s;
+                        })}
+                        className="mt-0.5 w-4 h-4 accent-primary shrink-0"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-foreground font-medium truncate">{p.title}</p>
+                        <div className="flex gap-2 mt-1 flex-wrap">
+                          <span className={`text-xs px-1.5 py-0.5 rounded ${
+                            p.difficulty === "Hard" ? "bg-red-500/10 text-red-400"
+                            : p.difficulty === "Easy" ? "bg-green-500/10 text-green-400"
+                            : "bg-yellow-500/10 text-yellow-400"
+                          }`}>{p.difficulty}</span>
+                          {(p.tags || []).map((tag: string) => (
+                            <span key={tag} className="text-xs text-muted-foreground bg-muted/20 px-1.5 py-0.5 rounded">{tag}</span>
+                          ))}
+                          {(p.testCases || []).length > 0 && (
+                            <span className="text-xs text-muted-foreground">{p.testCases.length} test cases</span>
+                          )}
+                        </div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="p-5 border-t border-border/30 flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">{adminSelected.size} selected</span>
+              <div className="flex gap-3">
+                <button onClick={() => setAdminPickerOpen(false)} className="px-4 py-2 rounded-lg bg-muted/20 text-muted-foreground hover:bg-muted/30 transition-colors text-sm">
+                  Cancel
+                </button>
+                <button
+                  onClick={copyFromAdmin}
+                  disabled={adminSelected.size === 0 || copying}
+                  className="px-4 py-2 rounded-lg bg-primary/20 text-primary border border-primary/40 hover:bg-primary/30 transition-all text-sm flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Check className="w-4 h-4" />
+                  {copying ? "Copying..." : "Copy to My DB"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
