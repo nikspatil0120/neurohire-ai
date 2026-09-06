@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
+import TestInstructionsModal, { TestType } from "@/components/TestInstructionsModal";
 
 const API = "http://localhost:8000/api/v1";
 
@@ -87,6 +88,9 @@ const Interviews = () => {
   const [withdrawing,   setWithdrawing]   = useState(false);
   const [enteringInterview, setEnteringInterview] = useState(false);
 
+  // ── Test instructions modal ───────────────────────────────────────────────
+  const [instructionsType, setInstructionsType] = useState<TestType | null>(null);
+
   // ── Load applications + enrich with job details ──────────────────────────────
   useEffect(() => { loadApplications(); }, [authUser]);
 
@@ -164,14 +168,24 @@ const Interviews = () => {
     }
   };
 
-  // ── Enter interview with pre-entry countdown ──────────────────────────────
+  // ── Open instructions modal for a round ──────────────────────────────────
+  const openInstructions = (type: TestType) => {
+    setInstructionsType(type);
+  };
+
+  // ── After agreement — navigate to correct test ────────────────────────────
   const handleStartInterview = () => {
+    setInstructionsType(null);
     setShowModal(false);
     setEnteringInterview(true);
+    const dest =
+      instructionsType === "aptitude"  ? "/candidate/aptitude-test"   :
+      instructionsType === "coding"    ? "/candidate/technical-coding" :
+                                         "/candidate/interview-room";
     setTimeout(() => {
       setEnteringInterview(false);
-      navigate("/candidate/interview-room");
-    }, 3000);
+      navigate(dest);
+    }, 1200);
   };
 
   // ── Stats ─────────────────────────────────────────────────────────────────────
@@ -484,7 +498,11 @@ const Interviews = () => {
                               </p>
                             </div>
                             <button
-                              onClick={handleStartInterview}
+                              onClick={() => openInstructions(
+                                round.key === "aptitude" ? "aptitude"
+                                : round.key === "coding" ? "coding"
+                                : "interview"
+                              )}
                               className={`px-3 py-1.5 rounded-lg text-xs font-semibold text-white ${c.btn} transition-colors flex items-center gap-1.5`}>
                               <ChevronRight className="w-3.5 h-3.5" />
                               Start
@@ -663,6 +681,14 @@ const Interviews = () => {
             .animate-fade-in { animation: animate-fade-in 0.3s ease-out; }
           `}</style>
         </div>
+      )}
+      {/* Test Instructions Modal */}
+      {instructionsType && (
+        <TestInstructionsModal
+          testType={instructionsType}
+          onClose={() => setInstructionsType(null)}
+          onStart={handleStartInterview}
+        />
       )}
     </>
   );
