@@ -9,7 +9,7 @@ import logging
 from app.config import settings
 from app.core.database import init_db, close_db
 from app.utils.logger import setup_logging, APILogger, SecurityLogger
-from app.api import auth, users, jobs, interviews, websocket, problems, admin, aptitude, companies, applications
+from app.api import auth, users, jobs, interviews, websocket, problems, admin, aptitude, companies, applications, interview_ai
 from app.api import recruiter_questions
 
 # Setup logging
@@ -206,6 +206,7 @@ app.include_router(admin.router, prefix="/api/v1")
 app.include_router(aptitude.router, prefix="/api/v1")
 app.include_router(companies.router, prefix="/api/v1")
 app.include_router(applications.router, prefix="/api/v1")
+app.include_router(interview_ai.router, prefix="/api/v1")
 app.include_router(recruiter_questions.router, prefix="/api/v1")
 
 # Additional endpoints

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import GlassCard from "@/components/GlassCard";
@@ -87,6 +87,9 @@ const Interviews = () => {
   const [showModal,     setShowModal]     = useState(false);
   const [withdrawing,   setWithdrawing]   = useState(false);
   const [enteringInterview, setEnteringInterview] = useState(false);
+  const [entryProgress,     setEntryProgress]     = useState(0);
+  const [entryReady,        setEntryReady]        = useState(false);
+  const entryAppRef = useRef<Application | null>(null);
 
   // ── Test instructions modal ───────────────────────────────────────────────
   const [instructionsType, setInstructionsType] = useState<TestType | null>(null);
@@ -173,19 +176,162 @@ const Interviews = () => {
     setInstructionsType(type);
   };
 
-  // ── After agreement — navigate to correct test ────────────────────────────
+  // ── After agreement — start entry overlay + pre-generate questions ──────
   const handleStartInterview = () => {
     setInstructionsType(null);
     setShowModal(false);
+
+    // Only pre-generate for interview round; aptitude/coding navigate directly
+    if (instructionsType === "aptitude") {
+      setEnteringInterview(true);
+      setEntryProgress(0);
+      setTimeout(() => { setEnteringInterview(false); navigate("/candidate/aptitude-test"); }, 1500);
+      return;
+    }
+    if (instructionsType === "coding") {
+      setEnteringInterview(true);
+      setEntryProgress(0);
+      setTimeout(() => { setEnteringInterview(false); navigate("/candidate/technical-coding"); }, 1500);
+      return;
+    }
+
+    // Interview round — pre-generate questions while showing progress
+    const app = selectedApp;
+    entryAppRef.current = app;
     setEnteringInterview(true);
-    const dest =
-      instructionsType === "aptitude"  ? "/candidate/aptitude-test"   :
-      instructionsType === "coding"    ? "/candidate/technical-coding" :
-                                         "/candidate/interview-room";
-    setTimeout(() => {
-      setEnteringInterview(false);
-      navigate(dest);
-    }, 1200);
+    setEntryProgress(0);
+    setEntryReady(false);
+
+    // ── Animated progress that races toward real completion ──────────────
+    // Phase 1: 0→30 quickly (0.8s) — "connecting"
+    // Phase 2: 30→80 slowly (4s)   — question generation happening
+    // Phase 3: 80→100 fast once API returns
+    let currentPct = 0;
+    let phase2Done = false;
+    let apiDone    = false;
+    let cancelled  = false;
+
+    // Tick function — advances progress smoothly
+    const advance = (target: number, durationMs: number, onDone?: () => void) => {
+      const start    = currentPct;
+      const range    = target - start;
+      const startTime = Date.now();
+      const step = () => {
+        if (cancelled) return;
+        const elapsed = Date.now() - startTime;
+        const pct     = Math.min(elapsed / durationMs, 1);
+        // ease-out cubic
+        const eased   = 1 - Math.pow(1 - pct, 3);
+        currentPct    = start + range * eased;
+        setEntryProgress(Math.round(currentPct));
+        if (pct < 1) {
+          requestAnimationFrame(step);
+        } else {
+          currentPct = target;
+          setEntryProgress(target);
+          onDone?.();
+        }
+      };
+      requestAnimationFrame(step);
+    };
+
+    // Phase 1: 0 → 30 in 800ms
+    advance(30, 800, () => {
+      phase2Done = false;
+      // Phase 2: 30 → 80 in 5s (slow crawl while API works)
+      advance(80, 5000, () => {
+        phase2Done = true;
+        // If API already done, jump straight to 100
+        if (apiDone) finishEntry();
+      });
+    });
+
+    // ── API call: fetch profile + job + generate questions ───────────────
+    const runGeneration = async () => {
+      try {
+        if (!app) throw new Error("No application selected");
+
+        // Build candidate profile from auth user + profile API
+        const profileRes = await fetch(
+          `${API}/users/profile/data?email=${encodeURIComponent(authUser?.email || "")}`
+        );
+        const profileData = profileRes.ok ? await profileRes.json() : {};
+
+        const candidate = {
+          name:             authUser?.name || profileData.fullName || "",
+          qualification:    profileData.education?.[0]?.degree || "",
+          total_experience: app.experience || "",
+          skills:           (app.required_skills || []).join(", "),
+          work_experience:  (profileData.experience || []).map((e: any) =>
+            `${e.role || ""} at ${e.company || ""}`),
+          projects:         (profileData.projects || []).map((p: any) => p.title || ""),
+          certifications:   "",
+        };
+
+        const job = {
+          title:             app.job_title || "",
+          company:           app.organization_name || "",
+          experience_level:  app.experience || "",
+          required_skills:   (app.required_skills || []).join(", "),
+          responsibilities:  app.key_responsibilities || [],
+          other_requirements: app.description || "",
+        };
+
+        const res = await fetch(`${API}/interview-ai/generate-questions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ candidate, job }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || data.error || "Failed to generate questions");
+
+        apiDone = true;
+
+        // Store for navigation
+        (window as any).__interviewPayload = {
+          questions:        data.questions,
+          candidateProfile: candidate,
+          jobData:          job,
+          applicationId:    app._id,
+        };
+
+        // If phase 2 slow crawl is already done → finish immediately
+        if (phase2Done) finishEntry();
+        // Otherwise phase 2's onDone callback will call finishEntry()
+
+      } catch (err: any) {
+        cancelled = true;
+        setEnteringInterview(false);
+        setEntryProgress(0);
+        console.error("Question generation failed:", err.message);
+        // Navigate anyway with empty questions — room handles gracefully
+        navigate("/candidate/interview-room", { state: {
+          questions:        [],
+          candidateProfile: {},
+          jobData:          {},
+          applicationId:    app?._id || "",
+        }});
+      }
+    };
+
+    const finishEntry = () => {
+      if (cancelled) return;
+      // 80 → 100 in 600ms then navigate
+      advance(100, 600, () => {
+        setEntryReady(true);
+        setTimeout(() => {
+          cancelled = true;
+          setEnteringInterview(false);
+          setEntryProgress(0);
+          setEntryReady(false);
+          const payload = (window as any).__interviewPayload || {};
+          delete (window as any).__interviewPayload;
+          navigate("/candidate/interview-room", { state: payload });
+        }, 400);
+      });
+    };
+
+    runGeneration();
   };
 
   // ── Stats ─────────────────────────────────────────────────────────────────────
@@ -642,44 +788,53 @@ const Interviews = () => {
         <div className="fixed inset-0 z-[100] bg-background flex flex-col items-center justify-center gap-8">
           {/* Pulsing brain icon */}
           <div className="relative">
-            <div className="w-28 h-28 rounded-full bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center pulse-glow">
-              <Brain className="w-14 h-14 text-primary" />
+            <div className={`w-28 h-28 rounded-full bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center ${entryReady ? "" : "pulse-glow"}`}>
+              <Brain className={`w-14 h-14 ${entryReady ? "text-green-400" : "text-primary"}`} />
             </div>
-            {/* Ripple rings */}
-            <span className="absolute inset-0 rounded-full border border-primary/40 animate-ping" />
-            <span className="absolute inset-[-12px] rounded-full border border-primary/20 animate-ping" style={{ animationDelay: "0.3s" }} />
+            {!entryReady && (
+              <>
+                <span className="absolute inset-0 rounded-full border border-primary/40 animate-ping" />
+                <span className="absolute inset-[-12px] rounded-full border border-primary/20 animate-ping"
+                  style={{ animationDelay: "0.3s" }} />
+              </>
+            )}
           </div>
 
           {/* Message */}
-          <div className="text-center space-y-3">
+          <div className="text-center space-y-2">
             <h1 className="font-display text-3xl tracking-widest text-foreground neon-glow">
-              ENTERING INTERVIEW ROOM
+              {entryReady ? "ALL SET!" : "ENTERING INTERVIEW ROOM"}
             </h1>
             <p className="text-muted-foreground text-sm">
-              Get ready — your AI interview is about to begin
+              {entryReady
+                ? "Starting your interview now…"
+                : "Get ready — your AI interview is being prepared"}
             </p>
           </div>
 
-          {/* Animated dots */}
-          <div className="flex items-center gap-2">
-            {[0, 0.2, 0.4].map((delay, i) => (
+          {/* Progress bar + percentage */}
+          <div className="w-72 space-y-2">
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>Please wait</span>
+              <span className="font-mono text-primary">{entryProgress}%</span>
+            </div>
+            <div className="h-2 w-full rounded-full bg-muted/30 overflow-hidden">
               <div
-                key={i}
-                className="w-2.5 h-2.5 rounded-full bg-primary animate-glow-pulse"
-                style={{ animationDelay: `${delay}s` }}
+                className="h-full rounded-full bg-gradient-to-r from-primary to-secondary transition-none"
+                style={{ width: `${entryProgress}%` }}
               />
-            ))}
+            </div>
           </div>
 
-          {/* Thin progress bar at bottom */}
-          <div className="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-primary to-secondary"
-            style={{ animation: "grow-width 3s linear forwards" }} />
-
-          <style>{`
-            @keyframes grow-width { from { width: 0% } to { width: 100% } }
-            @keyframes animate-fade-in { from { opacity: 0 } to { opacity: 1 } }
-            .animate-fade-in { animation: animate-fade-in 0.3s ease-out; }
-          `}</style>
+          {/* Animated dots (hidden when ready) */}
+          {!entryReady && (
+            <div className="flex items-center gap-2">
+              {[0, 0.2, 0.4].map((delay, i) => (
+                <div key={i} className="w-2 h-2 rounded-full bg-primary animate-glow-pulse"
+                  style={{ animationDelay: `${delay}s` }} />
+              ))}
+            </div>
+          )}
         </div>
       )}
       {/* Test Instructions Modal */}
