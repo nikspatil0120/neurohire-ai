@@ -69,10 +69,12 @@ const CreateJob = () => {
   const [expandedCoding,    setExpandedCoding]    = useState(false);
   const [aptitudeQuestions, setAptitudeQuestions] = useState<AptitudeQuestion[]>([]);
   const [codingProblems,    setCodingProblems]    = useState<CodingProblem[]>([]);
-  const [aptitudeThreshold, setAptitudeThreshold] = useState(7);
+  const [aptitudeThreshold, setAptitudeThreshold] = useState(0);
   const [aptitudeDuration,  setAptitudeDuration]  = useState(30);
   const [aptitudePriority,  setAptitudePriority]  = useState(1);
   const [codingPriority,    setCodingPriority]    = useState(2);
+  const [codingThreshold,   setCodingThreshold]   = useState(0);
+  const [codingDuration,    setCodingDuration]    = useState(60);
 
   // Slots
   // (removed — validity period handled by startDate/endDate datetime fields)
@@ -177,7 +179,7 @@ const CreateJob = () => {
         aptitude_questions: aptitudeQuestions,
         coding_problems: codingProblems,
         ...(showAptitudeRound && { aptitude_threshold: aptitudeThreshold, aptitude_duration: aptitudeDuration, aptitude_priority: aptitudePriority }),
-        ...(showCodingRound   && { coding_priority: codingPriority }),
+        ...(showCodingRound   && { coding_priority: codingPriority, coding_threshold: codingThreshold, coding_duration: codingDuration }),
         status: "draft",
       };
 
@@ -192,7 +194,7 @@ const CreateJob = () => {
       // Reset
       setFormData({ title: "", description: "", minExperience: "", vacancies: "", requiredSkills: [], keyResponsibilities: "", startDate: "", endDate: "" });
       setSkillInput(""); setAptitudeQuestions([]); setCodingProblems([]);
-      setAptitudeThreshold(7); setAptitudeDuration(30); setAptitudePriority(1); setCodingPriority(2);
+      setAptitudeThreshold(0); setAptitudeDuration(30); setAptitudePriority(1); setCodingPriority(2); setCodingThreshold(0); setCodingDuration(60);
 
       setTimeout(() => navigate("/recruiter/jobs-created"), 1500);
     } catch (err: any) {
@@ -350,15 +352,24 @@ const CreateJob = () => {
                         <Target className="w-3.5 h-3.5 text-orange-400" />Passing Threshold
                       </label>
                       <div className="flex items-center gap-2">
-                        <input type="number" value={aptitudeThreshold} min="0" max={aptitudeQuestions.length || undefined}
+                        <input
+                          type="number"
+                          value={aptitudeThreshold === 0 && aptitudeQuestions.length === 0 ? "" : aptitudeThreshold}
+                          placeholder="—"
+                          min="0"
+                          max={aptitudeQuestions.length || undefined}
                           onChange={e => {
                             const val = parseInt(e.target.value) || 0;
-                            setAptitudeThreshold(Math.min(Math.max(0, val), aptitudeQuestions.length || val));
+                            const max = aptitudeQuestions.length;
+                            setAptitudeThreshold(max > 0 ? Math.min(Math.max(0, val), max) : Math.max(0, val));
                           }}
-                          className="w-20 px-3 py-2 rounded-lg bg-background/50 border border-border/50 text-foreground text-sm text-center focus:outline-none focus:border-primary/50" />
-                        <span className="text-muted-foreground text-sm">/ {aptitudeQuestions.length || "—"}</span>
+                          className="w-20 px-3 py-2 rounded-lg bg-background/50 border border-border/50 text-foreground text-sm text-center focus:outline-none focus:border-primary/50"
+                        />
+                        <span className="text-muted-foreground text-sm">/ {aptitudeQuestions.length > 0 ? aptitudeQuestions.length : "—"}</span>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-1">Min marks to qualify</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Min marks to qualify{aptitudeQuestions.length > 0 ? ` (max ${aptitudeQuestions.length})` : ""}
+                      </p>
                     </div>
                     <div>
                       <label className="text-xs text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
@@ -456,18 +467,42 @@ const CreateJob = () => {
             </div>
             {expandedCoding && (
               <div className="mt-6 space-y-4">
+                {/* Round Settings */}
                 <div className="p-4 rounded-lg bg-muted/20 border border-border/40">
-                  <h4 className="text-sm font-medium text-foreground mb-3">Round Settings</h4>
-                  <div className="max-w-xs">
-                    <label className="text-xs text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                      <ListOrdered className="w-3.5 h-3.5 text-green-400" />Round Priority
-                    </label>
-                    <select value={codingPriority} onChange={e => { const v=parseInt(e.target.value); setCodingPriority(v); if (showAptitudeRound) setAptitudePriority(v===1?2:1); }}
-                      className="w-full px-3 py-2 rounded-lg bg-background/50 border border-border/50 text-foreground text-sm focus:outline-none focus:border-primary/50">
-                      <option value={1}>Priority 1 (First)</option>
-                      <option value={2}>Priority 2 (Second)</option>
-                      <option value={3}>Priority 3 (Third)</option>
-                    </select>
+                  <h4 className="text-sm font-medium text-foreground mb-4">Round Settings</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                        <Target className="w-3.5 h-3.5 text-orange-400" />Passing Threshold
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          value={codingThreshold === 0 && codingProblems.length === 0 ? "" : codingThreshold}
+                          placeholder="—"
+                          min="0"
+                          max={codingProblems.length || undefined}
+                          onChange={e => {
+                            const val = parseInt(e.target.value) || 0;
+                            const max = codingProblems.length;
+                            setCodingThreshold(max > 0 ? Math.min(Math.max(0, val), max) : Math.max(0, val));
+                          }}
+                          className="w-20 px-3 py-2 rounded-lg bg-background/50 border border-border/50 text-foreground text-sm text-center focus:outline-none focus:border-primary/50"
+                        />
+                        <span className="text-muted-foreground text-sm">/ {codingProblems.length > 0 ? codingProblems.length : "—"}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Min problems to qualify{codingProblems.length > 0 ? ` (max ${codingProblems.length})` : ""}
+                      </p>
+                    </div>
+                    <div>
+                      <label className="text-xs text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-blue-400" />Duration (minutes)
+                      </label>
+                      <input type="number" value={codingDuration} min="1" step="5"
+                        onChange={e => setCodingDuration(Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-full px-3 py-2 rounded-lg bg-background/50 border border-border/50 text-foreground text-sm focus:outline-none focus:border-primary/50" />
+                    </div>
                   </div>
                 </div>
                 <div className="flex gap-3">
