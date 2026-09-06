@@ -6,7 +6,6 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProfileProvider } from "@/contexts/ProfileContext";
 import { GoogleAuthProvider } from "@/components/GoogleOAuthProvider";
-import DatabaseStatus from "@/components/DatabaseStatus";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import LoginSimple from "./pages/LoginSimple";

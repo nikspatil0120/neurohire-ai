@@ -24,7 +24,7 @@ interface Job {
   experience: string; // Backend uses 'experience' as string like "2+ years"
   required_skills: string[];
   key_responsibilities: string[];
-  status: "draft" | "published";
+  status: "draft" | "published" | "expired";
   created_at: string;
   recruiter_name: string;
   organization_name: string;
@@ -279,12 +279,14 @@ const JobsCreated = () => {
                     </div>
                     <div className="flex items-center gap-2">
                       {/* Status Badge */}
-                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                        job.status === "published" 
-                          ? "bg-green-500/20 text-green-400 border border-green-500/40" 
-                          : "bg-yellow-500/20 text-yellow-400 border border-yellow-500/40"
+                      <span className={`px-3 py-1 rounded-full text-xs font-medium border ${
+                        job.status === "published"
+                          ? "bg-green-500/20 text-green-400 border-green-500/40"
+                          : job.status === "expired"
+                          ? "bg-red-500/20 text-red-400 border-red-500/40"
+                          : "bg-yellow-500/20 text-yellow-400 border-yellow-500/40"
                       }`}>
-                        {job.status === "published" ? "Published" : "Draft"}
+                        {job.status === "published" ? "Published" : job.status === "expired" ? "Expired" : "Draft"}
                       </span>
                     </div>
                   </div>

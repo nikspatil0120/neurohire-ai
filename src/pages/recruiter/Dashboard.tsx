@@ -205,9 +205,11 @@ const RecruiterDashboard = () => {
                         <span className={`px-3 py-1 rounded-full text-xs font-medium border ${
                           job.status === "published"
                             ? "bg-green-500/20 text-green-400 border-green-500/40"
+                            : job.status === "expired"
+                            ? "bg-red-500/20 text-red-400 border-red-500/40"
                             : "bg-yellow-500/20 text-yellow-400 border-yellow-500/40"
                         }`}>
-                          {job.status === "published" ? "Published" : "Draft"}
+                          {job.status === "published" ? "Published" : job.status === "expired" ? "Expired" : "Draft"}
                         </span>
 
                         {job.status === "published" && (
@@ -266,14 +268,19 @@ const RecruiterDashboard = () => {
                       </span>
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => toggleStatus(job._id, job.status)}
+                          onClick={() => job.status !== "expired" && toggleStatus(job._id, job.status)}
+                          disabled={job.status === "expired"}
                           className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
-                            job.status === "draft"
+                            job.status === "expired"
+                              ? "bg-red-500/10 text-red-400 border border-red-500/30 opacity-60 cursor-not-allowed"
+                              : job.status === "draft"
                               ? "bg-green-500/20 text-green-400 border border-green-500/40 hover:bg-green-500/30"
                               : "bg-yellow-500/20 text-yellow-400 border border-yellow-500/40 hover:bg-yellow-500/30"
                           }`}
                         >
-                          {job.status === "draft"
+                          {job.status === "expired"
+                            ? <><FileText className="w-4 h-4" /> Expired</>
+                            : job.status === "draft"
                             ? <><Globe className="w-4 h-4" /> Publish</>
                             : <><FileText className="w-4 h-4" /> Draft</>}
                         </button>

@@ -186,7 +186,7 @@ const Reports = () => {
     fetch(`${API}/jobs/recruiter/${encodeURIComponent(email)}`)
       .then(r => r.json())
       .then(d => {
-        const published = (d.jobs || []).filter((j: Job) => j.status === "published");
+        const published = (d.jobs || []).filter((j: Job) => j.status === "published" || j.status === "expired");
         setJobs(published);
       })
       .catch(console.error)
