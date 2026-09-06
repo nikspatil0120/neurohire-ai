@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import GlassCard from "@/components/GlassCard";
-import { LayoutDashboard, FilePlus, Database, Trophy, MessageCircle, LogOut, Building2, User, Save, Camera, Upload, X } from "lucide-react";
+import { LayoutDashboard, FilePlus, Database, BarChart2, MessageCircle, LogOut, Building2, User, Save, Camera, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -9,7 +9,7 @@ const navItems = [
   { label: "Dashboard", href: "/recruiter/dashboard", icon: LayoutDashboard },
   { label: "Create Job", href: "/recruiter/create-job", icon: FilePlus },
   { label: "Question DB", href: "/recruiter/questions", icon: Database },
-  { label: "Rankings", href: "/recruiter/rankings", icon: Trophy },
+  { label: "Reports",        href: "/recruiter/rankings",    icon: BarChart2 },
   { label: "Messages", href: "/recruiter/messages", icon: MessageCircle },
   { label: "Profile", href: "/recruiter/profile", icon: User },
   { label: "Logout", href: "/login", icon: LogOut },

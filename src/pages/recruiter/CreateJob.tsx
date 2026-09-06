@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import GlassCard from "@/components/GlassCard";
@@ -6,6 +6,7 @@ import {
   LayoutDashboard, FilePlus, Database, BarChart2, LogOut, Save,
   CheckCircle, ChevronDown, ChevronUp, Plus, Trash2, Code, BookOpen, XCircle,
   Briefcase, Users, Target, Clock, ListOrdered, Calendar, AlignLeft, MessageCircle,
+  Trophy, LibraryBig, X,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -68,13 +69,71 @@ const CreateJob = () => {
   const [expandedCoding,    setExpandedCoding]    = useState(false);
   const [aptitudeQuestions, setAptitudeQuestions] = useState<AptitudeQuestion[]>([]);
   const [codingProblems,    setCodingProblems]    = useState<CodingProblem[]>([]);
-  const [aptitudeThreshold, setAptitudeThreshold] = useState(7);
+  const [aptitudeThreshold, setAptitudeThreshold] = useState(0);
   const [aptitudeDuration,  setAptitudeDuration]  = useState(30);
   const [aptitudePriority,  setAptitudePriority]  = useState(1);
   const [codingPriority,    setCodingPriority]    = useState(2);
+  const [codingThreshold,   setCodingThreshold]   = useState(0);
+  const [codingDuration,    setCodingDuration]    = useState(60);
 
   // Slots
   // (removed — validity period handled by startDate/endDate datetime fields)
+
+  // ── DB Picker ──────────────────────────────────────────────────────
+  type DbPickerType = "aptitude" | "coding" | null;
+  const [dbPickerOpen, setDbPickerOpen] = useState<DbPickerType>(null);
+  const [dbQuestions, setDbQuestions] = useState<any[]>([]);
+  const [dbLoading, setDbLoading] = useState(false);
+  const [dbSelected, setDbSelected] = useState<Set<string>>(new Set());
+
+  const openDbPicker = async (type: "aptitude" | "coding") => {
+    setDbPickerOpen(type);
+    setDbSelected(new Set());
+    setDbLoading(true);
+    try {
+      const email = getRecruiterInfo().email;
+      const qType = type === "aptitude" ? "aptitude" : "coding";
+      const res = await fetch(`${API}/recruiter-questions/?recruiter_email=${encodeURIComponent(email)}&question_type=${qType}`);
+      const d = await res.json();
+      setDbQuestions(d.questions || []);
+    } catch { setDbQuestions([]); }
+    finally { setDbLoading(false); }
+  };
+
+  const importFromDb = () => {
+    if (dbPickerOpen === "aptitude") {
+      const toAdd = dbQuestions
+        .filter(q => dbSelected.has(q.id))
+        .map(q => ({
+          id: q.id,
+          question: q.question_text,
+          type: q.subtype === "numerical" ? "NAT" : "MCQ" as "MCQ" | "NAT",
+          options: q.options || [],
+          correctAnswer: q.correct_answer ?? 0,
+          difficulty: (q.difficulty || "Easy") as "Easy" | "Medium" | "Hard",
+          topic: q.category || "",
+        }));
+      setAptitudeQuestions(prev => [...prev, ...toAdd]);
+    } else if (dbPickerOpen === "coding") {
+      const toAdd = dbQuestions
+        .filter(q => dbSelected.has(q.id))
+        .map(q => ({
+          id: q.id,
+          title: q.question_text,
+          description: q.description || "",
+          difficulty: (q.difficulty || "Easy") as "Easy" | "Medium" | "Hard",
+          tags: q.tags || [],
+          testCases: (q.test_cases || []).map((tc: any) => ({
+            inputs: [tc.input || ""],
+            expectedOutput: tc.expected_output || "",
+            visibility: "visible" as "visible" | "hidden",
+          })),
+          codeTemplates: { python: "def solution():\n    pass", java: "class Main {\n    public static void main(String[] args) {\n    }\n}", cpp: "#include<iostream>\nusing namespace std;\nint main(){\n    return 0;\n}", c: "#include<stdio.h>\nint main(){\n    return 0;\n}" },
+        }));
+      setCodingProblems(prev => [...prev, ...toAdd]);
+    }
+    setDbPickerOpen(null);
+  };
 
   // ── Helpers ────────────────────────────────────────────────────────
   const getRecruiterInfo = () => {
@@ -120,7 +179,7 @@ const CreateJob = () => {
         aptitude_questions: aptitudeQuestions,
         coding_problems: codingProblems,
         ...(showAptitudeRound && { aptitude_threshold: aptitudeThreshold, aptitude_duration: aptitudeDuration, aptitude_priority: aptitudePriority }),
-        ...(showCodingRound   && { coding_priority: codingPriority }),
+        ...(showCodingRound   && { coding_priority: codingPriority, coding_threshold: codingThreshold, coding_duration: codingDuration }),
         status: "draft",
       };
 
@@ -135,7 +194,7 @@ const CreateJob = () => {
       // Reset
       setFormData({ title: "", description: "", minExperience: "", vacancies: "", requiredSkills: [], keyResponsibilities: "", startDate: "", endDate: "" });
       setSkillInput(""); setAptitudeQuestions([]); setCodingProblems([]);
-      setAptitudeThreshold(7); setAptitudeDuration(30); setAptitudePriority(1); setCodingPriority(2);
+      setAptitudeThreshold(0); setAptitudeDuration(30); setAptitudePriority(1); setCodingPriority(2); setCodingThreshold(0); setCodingDuration(60);
 
       setTimeout(() => navigate("/recruiter/jobs-created"), 1500);
     } catch (err: any) {
@@ -147,6 +206,7 @@ const CreateJob = () => {
 
   // ── Render ─────────────────────────────────────────────────────────
   return (
+    <>
     <DashboardLayout navItems={navItems} title="CREATE JOB">
       <div className="max-w-3xl space-y-6">
 
@@ -286,18 +346,30 @@ const CreateJob = () => {
                 {/* Round Settings */}
                 <div className="p-4 rounded-lg bg-muted/20 border border-border/40">
                   <h4 className="text-sm font-medium text-foreground mb-4">Round Settings</h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="text-xs text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
                         <Target className="w-3.5 h-3.5 text-orange-400" />Passing Threshold
                       </label>
                       <div className="flex items-center gap-2">
-                        <input type="number" value={aptitudeThreshold} min="0" max={aptitudeQuestions.length || 100}
-                          onChange={e => setAptitudeThreshold(Math.max(0, parseInt(e.target.value) || 0))}
-                          className="w-20 px-3 py-2 rounded-lg bg-background/50 border border-border/50 text-foreground text-sm text-center focus:outline-none focus:border-primary/50" />
-                        <span className="text-muted-foreground text-sm">/ {aptitudeQuestions.length || "—"}</span>
+                        <input
+                          type="number"
+                          value={aptitudeThreshold === 0 && aptitudeQuestions.length === 0 ? "" : aptitudeThreshold}
+                          placeholder="—"
+                          min="0"
+                          max={aptitudeQuestions.length || undefined}
+                          onChange={e => {
+                            const val = parseInt(e.target.value) || 0;
+                            const max = aptitudeQuestions.length;
+                            setAptitudeThreshold(max > 0 ? Math.min(Math.max(0, val), max) : Math.max(0, val));
+                          }}
+                          className="w-20 px-3 py-2 rounded-lg bg-background/50 border border-border/50 text-foreground text-sm text-center focus:outline-none focus:border-primary/50"
+                        />
+                        <span className="text-muted-foreground text-sm">/ {aptitudeQuestions.length > 0 ? aptitudeQuestions.length : "—"}</span>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-1">Min marks to qualify</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Min marks to qualify{aptitudeQuestions.length > 0 ? ` (max ${aptitudeQuestions.length})` : ""}
+                      </p>
                     </div>
                     <div>
                       <label className="text-xs text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
@@ -307,24 +379,19 @@ const CreateJob = () => {
                         onChange={e => setAptitudeDuration(Math.max(1, parseInt(e.target.value) || 1))}
                         className="w-full px-3 py-2 rounded-lg bg-background/50 border border-border/50 text-foreground text-sm focus:outline-none focus:border-primary/50" />
                     </div>
-                    <div>
-                      <label className="text-xs text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                        <ListOrdered className="w-3.5 h-3.5 text-green-400" />Round Priority
-                      </label>
-                      <select value={aptitudePriority} onChange={e => { const v = parseInt(e.target.value); setAptitudePriority(v); if (showCodingRound) setCodingPriority(v === 1 ? 2 : 1); }}
-                        className="w-full px-3 py-2 rounded-lg bg-background/50 border border-border/50 text-foreground text-sm focus:outline-none focus:border-primary/50">
-                        <option value={1}>Priority 1 (First)</option>
-                        <option value={2}>Priority 2 (Second)</option>
-                        <option value={3}>Priority 3 (Third)</option>
-                      </select>
-                    </div>
                   </div>
                 </div>
 
-                <button type="button" onClick={() => setAptitudeQuestions([...aptitudeQuestions, { id: Date.now().toString(), question: "", type: "MCQ", options: ["", ""], correctAnswer: 0, difficulty: "Easy", topic: "" }])}
-                  className="px-4 py-2 rounded-lg bg-primary/20 text-primary border border-primary/40 hover:bg-primary/30 transition-all flex items-center gap-2">
-                  <Plus className="w-4 h-4" />Add Question
-                </button>
+                <div className="flex gap-3">
+                  <button type="button" onClick={() => setAptitudeQuestions([...aptitudeQuestions, { id: Date.now().toString(), question: "", type: "MCQ", options: ["", ""], correctAnswer: 0, difficulty: "Easy", topic: "" }])}
+                    className="px-4 py-2 rounded-lg bg-primary/20 text-primary border border-primary/40 hover:bg-primary/30 transition-all flex items-center gap-2">
+                    <Plus className="w-4 h-4" />Add Question
+                  </button>
+                  <button type="button" onClick={() => openDbPicker("aptitude")}
+                    className="px-4 py-2 rounded-lg bg-secondary/20 text-secondary border border-secondary/40 hover:bg-secondary/30 transition-all flex items-center gap-2">
+                    <LibraryBig className="w-4 h-4" />Add from Database
+                  </button>
+                </div>
 
                 {aptitudeQuestions.map((q, qi) => (
                   <div key={q.id} className="p-4 rounded-lg bg-muted/30 border border-border/50 space-y-3">
@@ -400,24 +467,54 @@ const CreateJob = () => {
             </div>
             {expandedCoding && (
               <div className="mt-6 space-y-4">
+                {/* Round Settings */}
                 <div className="p-4 rounded-lg bg-muted/20 border border-border/40">
-                  <h4 className="text-sm font-medium text-foreground mb-3">Round Settings</h4>
-                  <div className="max-w-xs">
-                    <label className="text-xs text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                      <ListOrdered className="w-3.5 h-3.5 text-green-400" />Round Priority
-                    </label>
-                    <select value={codingPriority} onChange={e => { const v=parseInt(e.target.value); setCodingPriority(v); if (showAptitudeRound) setAptitudePriority(v===1?2:1); }}
-                      className="w-full px-3 py-2 rounded-lg bg-background/50 border border-border/50 text-foreground text-sm focus:outline-none focus:border-primary/50">
-                      <option value={1}>Priority 1 (First)</option>
-                      <option value={2}>Priority 2 (Second)</option>
-                      <option value={3}>Priority 3 (Third)</option>
-                    </select>
+                  <h4 className="text-sm font-medium text-foreground mb-4">Round Settings</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                        <Target className="w-3.5 h-3.5 text-orange-400" />Passing Threshold
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          value={codingThreshold === 0 && codingProblems.length === 0 ? "" : codingThreshold}
+                          placeholder="—"
+                          min="0"
+                          max={codingProblems.length || undefined}
+                          onChange={e => {
+                            const val = parseInt(e.target.value) || 0;
+                            const max = codingProblems.length;
+                            setCodingThreshold(max > 0 ? Math.min(Math.max(0, val), max) : Math.max(0, val));
+                          }}
+                          className="w-20 px-3 py-2 rounded-lg bg-background/50 border border-border/50 text-foreground text-sm text-center focus:outline-none focus:border-primary/50"
+                        />
+                        <span className="text-muted-foreground text-sm">/ {codingProblems.length > 0 ? codingProblems.length : "—"}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Min problems to qualify{codingProblems.length > 0 ? ` (max ${codingProblems.length})` : ""}
+                      </p>
+                    </div>
+                    <div>
+                      <label className="text-xs text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-blue-400" />Duration (minutes)
+                      </label>
+                      <input type="number" value={codingDuration} min="1" step="5"
+                        onChange={e => setCodingDuration(Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-full px-3 py-2 rounded-lg bg-background/50 border border-border/50 text-foreground text-sm focus:outline-none focus:border-primary/50" />
+                    </div>
                   </div>
                 </div>
-                <button type="button" onClick={() => setCodingProblems([...codingProblems, { id: Date.now().toString(), title:"", description:"", difficulty:"Easy", tags:[], testCases:[{inputs:[],expectedOutput:"",visibility:"visible"}], codeTemplates:{python:"def solution():\n    pass",java:"class Main {\n    public static void main(String[] args) {\n    }\n}",cpp:"#include<iostream>\nusing namespace std;\nint main(){\n    return 0;\n}",c:"#include<stdio.h>\nint main(){\n    return 0;\n}"} }])}
-                  className="px-4 py-2 rounded-lg bg-primary/20 text-primary border border-primary/40 hover:bg-primary/30 transition-all flex items-center gap-2">
-                  <Plus className="w-4 h-4" />Add Problem
-                </button>
+                <div className="flex gap-3">
+                  <button type="button" onClick={() => setCodingProblems([...codingProblems, { id: Date.now().toString(), title:"", description:"", difficulty:"Easy", tags:[], testCases:[{inputs:[],expectedOutput:"",visibility:"visible"}], codeTemplates:{python:"def solution():\n    pass",java:"class Main {\n    public static void main(String[] args) {\n    }\n}",cpp:"#include<iostream>\nusing namespace std;\nint main(){\n    return 0;\n}",c:"#include<stdio.h>\nint main(){\n    return 0;\n}"} }])}
+                    className="px-4 py-2 rounded-lg bg-primary/20 text-primary border border-primary/40 hover:bg-primary/30 transition-all flex items-center gap-2">
+                    <Plus className="w-4 h-4" />Add Problem
+                  </button>
+                  <button type="button" onClick={() => openDbPicker("coding")}
+                    className="px-4 py-2 rounded-lg bg-secondary/20 text-secondary border border-secondary/40 hover:bg-secondary/30 transition-all flex items-center gap-2">
+                    <LibraryBig className="w-4 h-4" />Add from Database
+                  </button>
+                </div>
                 {codingProblems.map((p, pi) => (
                   <div key={p.id} className="p-4 rounded-lg bg-muted/30 border border-border/50 space-y-3">
                     <div className="flex items-center justify-between">
@@ -522,6 +619,91 @@ const CreateJob = () => {
         </button>
       </div>
     </DashboardLayout>
+    {/* ── DB Picker Modal ── */}
+    {dbPickerOpen && (
+      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-start justify-center p-4 overflow-y-auto">
+        <div className="bg-card border border-border/50 rounded-xl shadow-2xl w-full max-w-2xl my-6">
+          <div className="flex items-center justify-between p-5 border-b border-border/30">
+            <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+              <LibraryBig className="w-5 h-5 text-secondary" />
+              Select {dbPickerOpen === "aptitude" ? "Aptitude" : "Technical"} Questions from Database
+            </h2>
+            <button onClick={() => setDbPickerOpen(null)} className="p-2 rounded-lg bg-muted/20 hover:bg-muted/30 text-muted-foreground">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="p-5">
+            {dbLoading ? (
+              <div className="flex items-center justify-center h-32">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+              </div>
+            ) : dbQuestions.length === 0 ? (
+              <div className="text-center py-10">
+                <Database className="w-10 h-10 mx-auto mb-3 text-muted-foreground opacity-40" />
+                <p className="text-muted-foreground text-sm">No {dbPickerOpen} questions in your database yet.</p>
+                <p className="text-xs text-muted-foreground mt-1">Add questions in the Question DB section first.</p>
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                {dbQuestions.map(q => (
+                  <label key={q.id} className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
+                    dbSelected.has(q.id)
+                      ? "border-primary/50 bg-primary/10"
+                      : "border-border/30 hover:border-primary/30 bg-muted/5"
+                  }`}>
+                    <input
+                      type="checkbox"
+                      checked={dbSelected.has(q.id)}
+                      onChange={() => {
+                        setDbSelected(prev => {
+                          const s = new Set(prev);
+                          s.has(q.id) ? s.delete(q.id) : s.add(q.id);
+                          return s;
+                        });
+                      }}
+                      className="mt-0.5 w-4 h-4 accent-primary shrink-0"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-foreground font-medium truncate">{q.question_text}</p>
+                      <div className="flex gap-2 mt-1 flex-wrap">
+                        {q.subtype && (
+                          <span className="text-xs text-muted-foreground">{q.subtype === "numerical" ? "Numerical" : "MCQ"}</span>
+                        )}
+                        <span className={`text-xs px-1.5 py-0.5 rounded ${
+                          q.difficulty === "Hard" ? "bg-red-500/10 text-red-400"
+                          : q.difficulty === "Easy" ? "bg-green-500/10 text-green-400"
+                          : "bg-yellow-500/10 text-yellow-400"
+                        }`}>{q.difficulty}</span>
+                        {q.category && <span className="text-xs text-muted-foreground">{q.category}</span>}
+                        {dbPickerOpen === "coding" && q.test_cases?.length > 0 && (
+                          <span className="text-xs text-muted-foreground">{q.test_cases.length} test cases</span>
+                        )}
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="p-5 border-t border-border/30 flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">{dbSelected.size} selected</span>
+            <div className="flex gap-3">
+              <button onClick={() => setDbPickerOpen(null)} className="px-4 py-2 rounded-lg bg-muted/20 text-muted-foreground hover:bg-muted/30 transition-colors text-sm">
+                Cancel
+              </button>
+              <button
+                onClick={importFromDb}
+                disabled={dbSelected.size === 0}
+                className="px-4 py-2 rounded-lg bg-primary/20 text-primary border border-primary/40 hover:bg-primary/30 transition-all text-sm flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <CheckCircle className="w-4 h-4" /> Import Selected
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+  </>
   );
 };
 
