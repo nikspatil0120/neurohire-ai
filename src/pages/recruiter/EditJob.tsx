@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import GlassCard from "@/components/GlassCard";
 import {
-  LayoutDashboard, FilePlus, Database, Trophy, MessageCircle, LogOut, Save,
+  LayoutDashboard, FilePlus, Database, BarChart2, MessageCircle, LogOut, Save,
   CheckCircle, ChevronDown, ChevronUp, Plus, Trash2, Code, BookOpen, XCircle,
   Briefcase, Users, Target, Clock, ListOrdered, Calendar, AlignLeft,
 } from "lucide-react";
@@ -17,7 +17,7 @@ const navItems = [
   { label: "Jobs Created", href: "/recruiter/jobs-created",icon: Briefcase },
   { label: "Applicants",   href: "/recruiter/applicants",  icon: Users },
   { label: "Question DB",  href: "/recruiter/questions",   icon: Database },
-  { label: "Rankings",     href: "/recruiter/rankings",    icon: Trophy },
+  { label: "Reports",        href: "/recruiter/rankings",    icon: BarChart2 },
   { label: "Messages",     href: "/recruiter/messages",    icon: MessageCircle },
   { label: "Logout",       href: "/login",                 icon: LogOut },
 ];
