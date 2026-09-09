@@ -9,7 +9,7 @@ import { useProctoringMonitor } from "@/hooks/useProctoringMonitor";
 import { useCandidateSignals } from "@/hooks/useCandidateSignals";
 import {
   Brain, Clock, AlertTriangle, Mic,
-  X, Volume2, ShieldAlert, ShieldCheck, ShieldOff,
+  X, Volume2, ShieldAlert, ShieldCheck, ShieldOff, ChevronRight,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -56,7 +56,7 @@ type AiMode = "idle" | "speaking" | "listening" | "processing";
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 const MAX_FOLLOWUPS      = 3;   // kept for the follow-up counter display only
-const SILENCE_TIMEOUT_MS = 15000;
+const SILENCE_TIMEOUT_MS = 8000;
 const DIFFICULTY_LEVELS  = ["basic", "intermediate", "advanced"] as const;
 
 function mean(arr: number[]) {
@@ -127,6 +127,7 @@ function speak(text: string): Promise<void> {
 function listenForAnswer(
   onInterim: (text: string) => void,
   onCountdown: (sec: number) => void,
+  forceSubmitRef?: React.MutableRefObject<(() => void) | null>,
 ): Promise<string> {
   return new Promise((resolve) => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -144,9 +145,14 @@ function listenForAnswer(
       if (finished) return;
       finished = true;
       clearInterval(interval);
+      // Clear the force-submit handle so the button disappears
+      if (forceSubmitRef) forceSubmitRef.current = null;
       try { recognition.onend = null; recognition.onerror = null; recognition.stop(); } catch { /* ignore */ }
       resolve(currentText());
     }
+
+    // Expose early-submit to the button via the ref
+    if (forceSubmitRef) forceSubmitRef.current = finalize;
 
     function tick() {
       onInterim(currentText());
@@ -212,7 +218,7 @@ const InterviewRoom = () => {
   const [currentCategory,   setCurrentCategory]   = useState("");
   const [currentDifficulty, setCurrentDifficulty] = useState<"basic" | "intermediate" | "advanced">("basic");
   const [liveTranscript,    setLiveTranscript]    = useState("");
-  const [silenceCountdown,  setSilenceCountdown]  = useState(15);
+  const [silenceCountdown,  setSilenceCountdown]  = useState(8);
   const [followupCount,     setFollowupCount]     = useState(0);
   const [isFinished,        setIsFinished]        = useState(false);
   const [terminated,        setTerminated]        = useState(false);
@@ -225,6 +231,9 @@ const InterviewRoom = () => {
   const correctnessHistory   = useRef<number[]>([]);
   const currentExchangesRef  = useRef<Exchange[]>([]);
   const runningRef           = useRef(false);
+  // Holds the finalize() fn of the currently active listenForAnswer call.
+  // The "Submit Answer" button calls this to skip waiting for silence.
+  const forceSubmitRef       = useRef<(() => void) | null>(null);
 
   // ── Face analysis + proctoring + candidate signals ────────────────────────
   const proctoring = useProctoringMonitor();
@@ -397,6 +406,7 @@ const InterviewRoom = () => {
       const answer = await listenForAnswer(
         (t) => setLiveTranscript(t),
         (s) => setSilenceCountdown(s),
+        forceSubmitRef,
       );
 
       const exchanges: Exchange[] = [{ question: rq.question, answer }];
@@ -447,6 +457,7 @@ const InterviewRoom = () => {
       const answer = await listenForAnswer(
         (t) => setLiveTranscript(t),
         (s) => setSilenceCountdown(s),
+        forceSubmitRef,
       );
 
       const exchanges: Exchange[] = [{ question: mq.question, answer }];
@@ -499,6 +510,7 @@ const InterviewRoom = () => {
         const fuAnswer = await listenForAnswer(
           (t) => setLiveTranscript(t),
           (s) => setSilenceCountdown(s),
+          forceSubmitRef,
         );
 
         exchanges.push({ question: followupData.followup_question, answer: fuAnswer });
@@ -790,6 +802,18 @@ const InterviewRoom = () => {
             }`}>
               {liveTranscript || (aiMode === "listening" ? "Start speaking…" : "Waiting…")}
             </p>
+            {/* Submit button — only shown while actively listening */}
+            {aiMode === "listening" && (
+              <div className="mt-3 flex justify-end">
+                <button
+                  onClick={() => forceSubmitRef.current?.()}
+                  className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-green-500/20 border border-green-500/40 text-green-400 text-xs font-semibold hover:bg-green-500/30 active:scale-95 transition-all"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                  Submit Answer
+                </button>
+              </div>
+            )}
           </GlassCard>
         </div>
       </div>

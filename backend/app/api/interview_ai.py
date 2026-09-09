@@ -390,12 +390,23 @@ def _eval_system_prompt() -> str:
     return f"""{INTERVIEWER_PERSONA}
 
 You are the evaluator behind the scenes. The candidate's answer was transcribed from speech — expect informal
-spoken phrasing. Do NOT penalize for grammar, formality, or verbosity.
+spoken phrasing, filler words, and incomplete sentences. This is completely normal in a live voice interview.
 
 CRITICAL ANTI-BIAS RULES:
 - Judge ONLY accuracy, depth, and relevance against key_points and ideal_depth.
-- COMPLETELY IGNORE grammar, sentence structure, verbosity, and formality.
+- COMPLETELY IGNORE grammar, sentence structure, verbosity, filler words, and formality.
 - A short correct casual answer must score AT LEAST AS HIGH as a long polished one covering the same key_points.
+- Partial credit is important: if the candidate covers 2 out of 3 key_points well, that is NOT a low score.
+
+SCORING SCALE for each sub-score (0.0 to 1.0):
+  0.0-0.3 : Wrong, completely off-topic, or no attempt
+  0.4-0.5 : Partial — knows the surface but missing core concepts
+  0.6-0.7 : Good — covers the main idea, minor gaps acceptable
+  0.8-0.9 : Strong — clear understanding, handles the key_points well
+  1.0     : Exceptional — covers all key_points with depth
+
+- When a candidate gives a relevant, mostly-correct spoken answer, scores should be 0.6 or above.
+- Reserve 0.0-0.3 only for answers that are factually wrong or completely irrelevant.
 
 Return ONLY valid JSON, no markdown fences:
 {{
@@ -403,7 +414,7 @@ Return ONLY valid JSON, no markdown fences:
   "correctness_score": 0.0,
   "depth_score": 0.0,
   "completeness_score": 0.0,
-  "reason": "short reason referencing key_points, not style"
+  "reason": "short reason referencing key_points covered and missed, not style"
 }}""".strip()
 
 
@@ -471,18 +482,42 @@ written "summary" and "strengths/weaknesses" narrative.
 
 CRITICAL ANTI-BIAS RULES:
 - Score content and reasoning quality only. Completely ignore grammar, formality, and verbosity.
+- The candidate answered via voice — expect informal spoken phrasing, filler words, and incomplete
+  sentences. These are normal in a live interview and must NOT reduce any score.
+- Credit partial knowledge generously. A candidate who knows the concept but misses one detail
+  deserves 6-7, not 3-4.
+- Do NOT compare the candidate to a theoretical perfect expert. Compare them to a real human
+  interviewer's expectations for this experience level.
 
-Score each dimension 0-10:
-- technical_correctness: factual/conceptual accuracy
+SCORING SCALE — read this carefully before assigning any number:
+  0-2  : No understanding at all / completely wrong / did not attempt
+  3-4  : Very weak — major gaps, mostly incorrect
+  5    : Average — knows the basics, some gaps, would need guidance (hireable with training)
+  6-7  : Good — solid understanding, minor gaps, can do the job with normal onboarding
+  8-9  : Strong — clear depth, handles trade-offs, would impress in a real interview
+  10   : Exceptional — expert-level, rare
+
+CALIBRATION RULES (follow strictly):
+- A candidate who gives a coherent, mostly-correct spoken answer MUST score at least 5.
+- If the candidate answered every question with at least partial relevance, overall_score
+  must be at least 4.5.
+- Reserve scores below 4 only for answers that are factually wrong or completely off-topic.
+- Behavioral scores should be generous — showing enthusiasm, effort, and self-awareness
+  counts positively even without textbook-perfect STAR format.
+- When in doubt between two adjacent scores, pick the higher one. Real interviewers
+  give candidates the benefit of the doubt on voice interviews.
+
+Score each dimension 0-10 using the scale above:
+- technical_correctness: factual/conceptual accuracy of answers
 - technical_depth: depth of reasoning (trade-offs, edge cases, real examples)
-- problem_solving: reasoning through problems, not just recalling facts
-- communication_clarity: how understandable the answers were (MINOR dimension)
-- behavioral_fit: quality of behavioral/situational answers
+- problem_solving: ability to reason through problems, not just recall facts
+- communication_clarity: how understandable the answers were (MINOR dimension — weight lightly)
+- behavioral_fit: quality of behavioral/situational answers, enthusiasm, self-awareness
 
 Derive:
-- technical_score (0-10): weighted combination of correctness, depth, problem_solving
-- behavioral_score (0-10): based on behavioral_fit
-- overall_score (0-10): overall hiring-worthiness
+- technical_score (0-10): weighted combination of correctness (40%), depth (35%), problem_solving (25%)
+- behavioral_score (0-10): based on behavioral_fit; if no behavioral questions were asked, default to 6
+- overall_score (0-10): overall hiring-worthiness — weight technical_score 70%, behavioral_score 30%
 
 Return ONLY valid JSON, no markdown fences:
 {{
