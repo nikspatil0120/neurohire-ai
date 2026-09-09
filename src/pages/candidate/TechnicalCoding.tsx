@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate, Link, useSearchParams, useLocation } from 'react-router-dom';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import GlassCard from '@/components/GlassCard';
 import CelebrationCard from '@/components/CelebrationCard';
@@ -13,9 +13,24 @@ import {
 } from 'lucide-react';
 import { getProblemById, Problem } from '@/lib/problemStore';
 
+const APP_API = "http://localhost:8000/api/v1";
+
 const TechnicalCoding = () => {
   const [searchParams] = useSearchParams();
+  const location = useLocation();
+  const navigate  = useNavigate();
   const problemId = searchParams.get('problemId');
+
+  // State passed from Interviews.tsx when started from a job
+  const locState = (location.state || {}) as {
+    problems?:      any[];   // recruiter-defined coding problems
+    applicationId?: string;
+  };
+  const isJobTest     = !!(locState.problems && locState.problems.length > 0);
+  const applicationId = locState.applicationId || "";
+
+  // For job tests, pick first problem (or later: let candidate pick)
+  const jobProblem: any | null = isJobTest ? (locState.problems![0] || null) : null;
 
   const [selectedLanguage, setSelectedLanguage] = useState('python');
   const [showLanguageDropdown, setShowLanguageDropdown] = useState(false);
@@ -55,10 +70,38 @@ const TechnicalCoding = () => {
   // ─── Load problem from database ───────────────────────────────────────────────
   useEffect(() => {
     const loadProblem = async () => {
-      if (!problemId) {
+      // Job test: convert recruiter problem to Problem shape
+      if (isJobTest && jobProblem) {
+        const converted: Problem = {
+          id:          jobProblem.id || jobProblem._id || String(Date.now()),
+          title:       jobProblem.title || jobProblem.question_text || "Problem",
+          difficulty:  jobProblem.difficulty || "Medium",
+          tags:        jobProblem.tags || [],
+          companies:   [],
+          description: jobProblem.description || jobProblem.question_text || "",
+          examples:    [],
+          constraints: [],
+          testCases:   (jobProblem.testCases || jobProblem.test_cases || []).map((tc: any) => ({
+            inputs:         [tc.input || (tc.inputs && tc.inputs[0]) || ""],
+            expectedOutput: tc.expected_output || tc.expectedOutput || "",
+            visibility:     tc.visibility || "visible",
+          })),
+          codeTemplates: jobProblem.codeTemplates || {
+            python: "def solution():\n    pass\n",
+            java:   "class Main {\n    public static void main(String[] args) {\n    }\n}",
+            cpp:    "#include<iostream>\nusing namespace std;\nint main(){\n    return 0;\n}",
+            c:      "#include<stdio.h>\nint main(){\n    return 0;\n}",
+          },
+          stats:     { likes: 0, dislikes: 0, acceptance: "0%", submissions: "0" },
+          published: true,
+        };
+        setProblemData(converted);
+        setCode(converted.codeTemplates[selectedLanguage as keyof typeof converted.codeTemplates] || "");
         setIsLoading(false);
         return;
       }
+
+      if (!problemId) { setIsLoading(false); return; }
       try {
         const problem = await getProblemById(problemId);
         if (problem) {
@@ -399,6 +442,26 @@ const TechnicalCoding = () => {
             markProblemAsSolved(problemId);
             setShowCelebration(true);
           }
+
+          // ── Save score to recruiter report if this is a job test ──────────
+          if (isJobTest && applicationId && isSubmit) {
+            const passed = mapped.filter((r: any) => r.passed).length;
+            const total  = mapped.length;
+            try {
+              await fetch(`${APP_API}/applications/${applicationId}/score`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  round:     "coding",
+                  score:     passed,
+                  max_score: total,
+                  notes:     `${passed}/${total} test cases passed`,
+                }),
+              });
+            } catch (e) {
+              console.error("Failed to save coding score:", e);
+            }
+          }
         }
       } else {
         throw new Error(data.message || 'Execution failed');
@@ -439,9 +502,10 @@ const TechnicalCoding = () => {
         <div className="text-center">
           <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
           <p className="text-foreground mb-2">Problem not found</p>
-          <Link to="/candidate/problem-list" className="text-primary hover:underline">
-            ← Back to Problem List
-          </Link>
+          {isJobTest
+            ? <button onClick={() => navigate("/candidate/interviews")} className="text-primary hover:underline">← Back to Interviews</button>
+            : <Link to="/candidate/problem-list" className="text-primary hover:underline">← Back to Problem List</Link>
+          }
         </div>
       </div>
     );
