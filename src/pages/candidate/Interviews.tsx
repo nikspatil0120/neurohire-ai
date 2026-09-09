@@ -70,9 +70,15 @@ interface Application {
   aptitude_duration?: number;
   aptitude_threshold?: number;
   coding_priority?: number;
+  coding_threshold?: number;
   aptitude_questions?: any[];
   coding_problems?: any[];
-  job_status?: string;  // backend-computed: "published" | "expired" | "draft"
+  job_status?: string;
+  scores?: {
+    aptitude?: { score: number; max_score: number; notes?: string };
+    coding?:   { score: number; max_score: number; notes?: string };
+    interview?: { score: number; max_score: number; notes?: string };
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -133,11 +139,13 @@ const Interviews = () => {
             aptitude_duration:  job.aptitude_duration,
             aptitude_threshold: job.aptitude_threshold,
             coding_priority:    job.coding_priority,
+            coding_threshold:   job.coding_threshold,
             aptitude_questions: job.aptitude_questions || [],
             coding_problems:    job.coding_problems    || [],
             company_logo:       info.logo              || "",
             organization_name:  app.organization_name  || info.organization_name || job.organization_name || "",
             job_status:         job.status             || "",
+            scores:             app.scores             || {},
           };
         } catch {
           return app;
@@ -185,13 +193,31 @@ const Interviews = () => {
     if (instructionsType === "aptitude") {
       setEnteringInterview(true);
       setEntryProgress(0);
-      setTimeout(() => { setEnteringInterview(false); navigate("/candidate/aptitude-test"); }, 1500);
+      setTimeout(() => {
+        setEnteringInterview(false);
+        navigate("/candidate/aptitude-test", {
+          state: {
+            questions:     selectedApp?.aptitude_questions || [],
+            duration:      selectedApp?.aptitude_duration  || 30,
+            threshold:     selectedApp?.aptitude_threshold ?? null,
+            applicationId: selectedApp?._id || "",
+          },
+        });
+      }, 1500);
       return;
     }
     if (instructionsType === "coding") {
       setEnteringInterview(true);
       setEntryProgress(0);
-      setTimeout(() => { setEnteringInterview(false); navigate("/candidate/technical-coding"); }, 1500);
+      setTimeout(() => {
+        setEnteringInterview(false);
+        navigate("/candidate/technical-coding", {
+          state: {
+            problems:      selectedApp?.coding_problems || [],
+            applicationId: selectedApp?._id || "",
+          },
+        });
+      }, 1500);
       return;
     }
 
@@ -525,6 +551,23 @@ const Interviews = () => {
                 const isExpired = selectedApp.job_status === "expired" || todayMidnight >= endMidnight;
                 if (!isExpired) return null;
 
+                // ── Determine round states using actual scores ───────────────
+                const scores = selectedApp.scores || {};
+
+                // For each round: did candidate attempt it? did they pass?
+                const roundState = (key: string): "not_attempted" | "passed" | "failed" => {
+                  const s = (scores as any)[key];
+                  if (!s || s.score === undefined) return "not_attempted";
+                  if (key === "interview") return s.score >= 6 ? "passed" : "failed"; // interview: pass if score ≥ 6/10
+
+                  const threshold = key === "aptitude"
+                    ? (selectedApp.aptitude_threshold ?? null)
+                    : (selectedApp.coding_threshold   ?? null);
+
+                  if (threshold === null) return "passed"; // no cutoff = always pass
+                  return s.score >= threshold ? "passed" : "failed";
+                };
+
                 // Build ordered round list from job config
                 type RoundDef = { key: string; label: string; icon: JSX.Element; color: string };
                 const rounds: RoundDef[] = [];
@@ -588,90 +631,97 @@ const Interviews = () => {
 
                 // ── Color helpers ────────────────────────────────────────────────
                 const colorMap: Record<string, { bg: string; border: string; text: string; btn: string }> = {
-                  orange: {
-                    bg: "bg-orange-500/10", border: "border-orange-500/30",
-                    text: "text-orange-400", btn: "bg-orange-500 hover:bg-orange-600",
-                  },
-                  blue: {
-                    bg: "bg-blue-500/10", border: "border-blue-500/30",
-                    text: "text-blue-400", btn: "bg-blue-500 hover:bg-blue-600",
-                  },
-                  purple: {
-                    bg: "bg-purple-500/10", border: "border-purple-500/30",
-                    text: "text-purple-400", btn: "bg-purple-500 hover:bg-purple-600",
-                  },
+                  orange: { bg: "bg-orange-500/10", border: "border-orange-500/30", text: "text-orange-400", btn: "bg-orange-500 hover:bg-orange-600" },
+                  blue:   { bg: "bg-blue-500/10",   border: "border-blue-500/30",   text: "text-blue-400",   btn: "bg-blue-500 hover:bg-blue-600" },
+                  purple: { bg: "bg-purple-500/10", border: "border-purple-500/30", text: "text-purple-400", btn: "bg-purple-500 hover:bg-purple-600" },
                 };
+
+                // Check if any previous round failed — if so lock everything after it
+                const firstFailedIdx = rounds.findIndex(r => roundState(r.key) === "failed");
 
                 return (
                   <div className="space-y-3">
                     <h3 className="text-sm font-semibold text-foreground">Your Rounds</h3>
                     {rounds.map((round, idx) => {
-                      const c       = colorMap[round.color];
-                      const cleared = clearedKeys.includes(round.key);
-                      // A round is unlocked if:
-                      // - it's the first round, OR
-                      // - all previous rounds are cleared
-                      const prevCleared = rounds.slice(0, idx).every(r => clearedKeys.includes(r.key));
-                      const isUnlocked  = idx === 0 || prevCleared;
-                      const isCurrent   = isUnlocked && !cleared && round.key === activeKey;
+                      const c     = colorMap[round.color];
+                      const state = roundState(round.key);
 
-                      if (cleared) {
-                        // ── Cleared state ──────────────────────────────────────
+                      // Lock if a previous round was failed
+                      const blockedByFail = firstFailedIdx !== -1 && idx > firstFailedIdx;
+                      // Lock if previous round not yet attempted/passed
+                      const prevAllPassed = rounds.slice(0, idx).every(r => roundState(r.key) === "passed");
+                      const isLocked = idx > 0 && (!prevAllPassed || blockedByFail);
+
+                      // ── Passed ─────────────────────────────────────────────
+                      if (state === "passed") {
+                        const s = (scores as any)[round.key];
                         return (
-                          <div key={round.key}
-                            className="flex items-center gap-3 px-4 py-3 rounded-xl bg-green-500/10 border border-green-500/30">
+                          <div key={round.key} className="flex items-center gap-3 px-4 py-3 rounded-xl bg-green-500/10 border border-green-500/30">
                             <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0">
                               <Check className="w-4 h-4 text-green-400" />
                             </div>
                             <div className="flex-1">
                               <p className="text-sm font-medium text-foreground">{round.label}</p>
-                              <p className="text-xs text-green-400 mt-0.5">Cleared ✓</p>
+                              <p className="text-xs text-green-400 mt-0.5">
+                                Completed ✓{s ? ` — ${s.score}/${s.max_score}` : ""}
+                              </p>
                             </div>
                           </div>
                         );
                       }
 
-                      if (isUnlocked) {
-                        // ── Active / unlocked state ────────────────────────────
+                      // ── Failed ─────────────────────────────────────────────
+                      if (state === "failed") {
+                        const s = (scores as any)[round.key];
                         return (
-                          <div key={round.key}
-                            className={`flex items-center gap-3 px-4 py-3 rounded-xl ${c.bg} border ${c.border}`}>
-                            <div className={`w-8 h-8 rounded-full bg-current/10 flex items-center justify-center flex-shrink-0 ${c.text}`}>
-                              {round.icon}
+                          <div key={round.key} className="flex items-center gap-3 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30">
+                            <div className="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0">
+                              <X className="w-4 h-4 text-red-400" />
                             </div>
                             <div className="flex-1">
                               <p className="text-sm font-medium text-foreground">{round.label}</p>
-                              <p className={`text-xs mt-0.5 ${c.text}`}>
-                                {isCurrent ? "Ready to start" : "Unlocked"}
+                              <p className="text-xs text-red-400 mt-0.5">
+                                Better luck next time{s ? ` — ${s.score}/${s.max_score}` : ""}
                               </p>
                             </div>
-                            <button
-                              onClick={() => openInstructions(
-                                round.key === "aptitude" ? "aptitude"
-                                : round.key === "coding" ? "coding"
-                                : "interview"
-                              )}
-                              className={`px-3 py-1.5 rounded-lg text-xs font-semibold text-white ${c.btn} transition-colors flex items-center gap-1.5`}>
-                              <ChevronRight className="w-3.5 h-3.5" />
-                              Start
-                            </button>
                           </div>
                         );
                       }
 
-                      // ── Locked state ───────────────────────────────────────────
+                      // ── Locked (by fail or previous not done) ──────────────
+                      if (isLocked) {
+                        return (
+                          <div key={round.key} className="flex items-center gap-3 px-4 py-3 rounded-xl bg-muted/10 border border-border/20 opacity-50">
+                            <div className="w-8 h-8 rounded-full bg-muted/20 flex items-center justify-center flex-shrink-0">
+                              <Lock className="w-4 h-4 text-muted-foreground" />
+                            </div>
+                            <div className="flex-1">
+                              <p className="text-sm font-medium text-muted-foreground">{round.label}</p>
+                              <p className="text-xs text-muted-foreground/60 mt-0.5">
+                                {firstFailedIdx !== -1 && idx > firstFailedIdx
+                                  ? `Not eligible — did not clear ${rounds[firstFailedIdx].label}`
+                                  : `Complete ${rounds[idx - 1]?.label} first`}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      // ── Ready to start (not attempted, unlocked) ───────────
                       return (
-                        <div key={round.key}
-                          className="flex items-center gap-3 px-4 py-3 rounded-xl bg-muted/10 border border-border/20 opacity-50">
-                          <div className="w-8 h-8 rounded-full bg-muted/20 flex items-center justify-center flex-shrink-0">
-                            <Lock className="w-4 h-4 text-muted-foreground" />
+                        <div key={round.key} className={`flex items-center gap-3 px-4 py-3 rounded-xl ${c.bg} border ${c.border}`}>
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${c.text}`}>
+                            {round.icon}
                           </div>
                           <div className="flex-1">
-                            <p className="text-sm font-medium text-muted-foreground">{round.label}</p>
-                            <p className="text-xs text-muted-foreground/60 mt-0.5">
-                              Complete {rounds[idx - 1]?.label} first
-                            </p>
+                            <p className="text-sm font-medium text-foreground">{round.label}</p>
+                            <p className={`text-xs mt-0.5 ${c.text}`}>Ready to start</p>
                           </div>
+                          <button
+                            onClick={() => openInstructions(round.key === "aptitude" ? "aptitude" : round.key === "coding" ? "coding" : "interview")}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold text-white ${c.btn} transition-colors flex items-center gap-1.5`}>
+                            <ChevronRight className="w-3.5 h-3.5" /> Start
+                          </button>
                         </div>
                       );
                     })}

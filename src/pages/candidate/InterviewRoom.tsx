@@ -548,11 +548,43 @@ const InterviewRoom = () => {
     // Submit signals in parallel with final scoring — non-blocking
     submitSignals(signalAggregatesRef.current);
 
+    // ── Helper: save score regardless of whether AI scoring succeeds ──────
+    const saveInterviewScore = async (score: number, notes: string) => {
+      if (!state.applicationId) return;
+      try {
+        await fetch(`${API}/applications/${state.applicationId}/score`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            round:     "interview",
+            score:     Math.round(score * 10) / 10,
+            max_score: 10,
+            notes,
+          }),
+        });
+      } catch (e) {
+        console.error("Failed to save interview score:", e);
+      }
+    };
+
     try {
       const result = await computeFinalScore();
       setFinalResult(result);
+      // Save AI-computed score
+      await saveInterviewScore(
+        result.overall_score ?? 0,
+        result.summary || "",
+      );
     } catch (e: any) {
       setErrorMsg("Could not generate final score: " + e.message);
+      // Fallback: save score derived from correctness history average
+      const avgCorrectness = correctnessHistory.current.length > 0
+        ? correctnessHistory.current.reduce((a, b) => a + b, 0) / correctnessHistory.current.length
+        : 0;
+      await saveInterviewScore(
+        Math.round(avgCorrectness * 10 * 10) / 10,  // scale 0-1 → 0-10
+        "Score estimated from answer quality (AI scoring unavailable)",
+      );
     }
     setIsFinished(true);
   }, [evaluateAnswer, generateFollowup, computeFinalScore, submitSignals, terminated]);
@@ -591,6 +623,51 @@ const InterviewRoom = () => {
   // ─────────────────────────────────────────────────────────────────────────
   if (isFinished) {
     const r = finalResult || {};
+    const isJobInterview = !!state.applicationId;
+
+    // ── Job interview: show thank-you, not scores ─────────────────────────
+    if (isJobInterview) {
+      return (
+        <div className="min-h-screen bg-background flex items-center justify-center p-6">
+          <div className="max-w-lg w-full text-center">
+            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center mx-auto mb-6">
+              <Brain className="w-10 h-10 text-white" />
+            </div>
+            <h1 className="font-display text-3xl text-foreground tracking-widest mb-3">
+              THANK YOU!
+            </h1>
+            <p className="text-lg text-muted-foreground mb-2">
+              Thanks for attempting the interview round.
+            </p>
+            <p className="text-sm text-muted-foreground mb-8">
+              Your results will be reviewed and declared soon. You'll be notified about the outcome.
+            </p>
+            <GlassCard variant="neon" hover={false} className="mb-8 text-left">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center">
+                  <span className="text-green-400 text-lg">✓</span>
+                </div>
+                <p className="text-sm font-medium text-foreground">All rounds completed</p>
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Your responses have been recorded and submitted for evaluation. The recruiter will review your performance across all rounds.
+              </p>
+            </GlassCard>
+            <div className="flex gap-3 justify-center">
+              <Link to="/candidate/interviews"
+                className="px-6 py-3 rounded-lg border border-border/50 text-foreground text-sm hover:bg-muted/30 transition-all">
+                Back to Interviews
+              </Link>
+              <Link to="/candidate/dashboard"
+                className="px-6 py-3 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 transition-all">
+                Dashboard
+              </Link>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen bg-background p-6 max-w-3xl mx-auto">
         <div className="text-center mb-8">
