@@ -2,9 +2,14 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import GlassCard from "@/components/GlassCard";
 import WaveformAnimation from "@/components/WaveformAnimation";
+import CameraPreview from "@/components/CameraPreview";
+import ProctoringDebugPanel from "@/components/ProctoringDebugPanel";
+import { useFaceAnalysis } from "@/hooks/useFaceAnalysis";
+import { useProctoringMonitor } from "@/hooks/useProctoringMonitor";
+import { useCandidateSignals } from "@/hooks/useCandidateSignals";
 import {
-  Brain, Camera, Clock, AlertTriangle, Mic, BarChart3,
-  TrendingUp, X, ChevronRight, Volume2,
+  Brain, Clock, AlertTriangle, Mic,
+  X, Volume2, ShieldAlert, ShieldCheck, ShieldOff,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -13,6 +18,12 @@ const API = "http://localhost:8000/api/v1";
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
+interface RapportQuestion {
+  id: number;
+  kind: "greeting" | "self_intro";
+  question: string;
+}
+
 interface Question {
   id: number;
   category: string;
@@ -21,6 +32,7 @@ interface Question {
   question: string;
   key_points: string[];
   ideal_depth: string;
+  difficulty: "basic" | "intermediate" | "advanced";
 }
 
 interface Exchange {
@@ -29,12 +41,13 @@ interface Exchange {
 }
 
 interface TranscriptItem {
-  id: number;
+  id: number | string;
   category: string;
   topic: string;
   key_points: string[];
   exchanges: Exchange[];
   final_eval: any;
+  scored: boolean;
 }
 
 type AiMode = "idle" | "speaking" | "listening" | "processing";
@@ -42,15 +55,9 @@ type AiMode = "idle" | "speaking" | "listening" | "processing";
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
-const MAX_FOLLOWUPS          = 3;
-const FOLLOWUP_BASE_THRESH   = 0.6;
-const FOLLOWUP_HYSTERESIS    = 0.15;
-const FOLLOWUP_MIN_THRESH    = 0.25;
-const SILENCE_TIMEOUT_MS     = 15000;
-
-function followupThreshold(followupCount: number) {
-  return Math.max(FOLLOWUP_BASE_THRESH - FOLLOWUP_HYSTERESIS * followupCount, FOLLOWUP_MIN_THRESH);
-}
+const MAX_FOLLOWUPS      = 3;   // kept for the follow-up counter display only
+const SILENCE_TIMEOUT_MS = 15000;
+const DIFFICULTY_LEVELS  = ["basic", "intermediate", "advanced"] as const;
 
 function mean(arr: number[]) {
   return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
@@ -64,12 +71,30 @@ function strengthLabel(history: number[]) {
   return `struggling so far (avg ${avg.toFixed(2)}) — ease off`;
 }
 
+function nextDifficulty(
+  current: string,
+  delta: "up" | "down" | "same",
+): "basic" | "intermediate" | "advanced" {
+  const idx = DIFFICULTY_LEVELS.indexOf(current as any);
+  const base = idx < 0 ? 0 : idx;
+  const next = delta === "up"   ? Math.min(base + 1, DIFFICULTY_LEVELS.length - 1)
+             : delta === "down" ? Math.max(base - 1, 0)
+             : base;
+  return DIFFICULTY_LEVELS[next];
+}
+
+function difficultyDots(level: "basic" | "intermediate" | "advanced") {
+  return level === "advanced" ? 3 : level === "intermediate" ? 2 : 1;
+}
+
 function transcriptToText(items: TranscriptItem[]) {
-  return items.map(item => {
-    const lines = [`[${item.category.toUpperCase()}] Topic: ${item.topic}`];
-    item.exchanges.forEach(e => { lines.push(`Q: ${e.question}`); lines.push(`A: ${e.answer}`); });
-    return lines.join("\n");
-  }).join("\n\n");
+  return items
+    .filter(item => item.scored)
+    .map(item => {
+      const lines = [`[${item.category.toUpperCase()}] Topic: ${item.topic}`];
+      item.exchanges.forEach(e => { lines.push(`Q: ${e.question}`); lines.push(`A: ${e.answer}`); });
+      return lines.join("\n");
+    }).join("\n\n");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -167,6 +192,7 @@ const InterviewRoom = () => {
   const location = useLocation();
   const navigate  = useNavigate();
   const state     = (location.state || {}) as {
+    rapport_questions?: RapportQuestion[];
     questions?:        Question[];
     candidateProfile?: any;
     jobData?:          any;
@@ -174,12 +200,17 @@ const InterviewRoom = () => {
   };
 
   // ── Core interview state ──────────────────────────────────────────────────
+  const [rapportQuestions,  setRapportQuestions]  = useState<RapportQuestion[]>(state.rapport_questions || []);
   const [questions,         setQuestions]         = useState<Question[]>(state.questions || []);
   const [questionIndex,     setQuestionIndex]     = useState(0);
+  const [totalQuestions,    setTotalQuestions]    = useState(
+    (state.rapport_questions?.length || 0) + (state.questions?.length || 0)
+  );
   const [aiMode,            setAiMode]            = useState<AiMode>("processing");
   const [currentQuestion,   setCurrentQuestion]   = useState("");
   const [currentTopic,      setCurrenTopic]       = useState("");
   const [currentCategory,   setCurrentCategory]   = useState("");
+  const [currentDifficulty, setCurrentDifficulty] = useState<"basic" | "intermediate" | "advanced">("basic");
   const [liveTranscript,    setLiveTranscript]    = useState("");
   const [silenceCountdown,  setSilenceCountdown]  = useState(15);
   const [followupCount,     setFollowupCount]     = useState(0);
@@ -195,6 +226,37 @@ const InterviewRoom = () => {
   const currentExchangesRef  = useRef<Exchange[]>([]);
   const runningRef           = useRef(false);
 
+  // ── Face analysis + proctoring + candidate signals ────────────────────────
+  const proctoring = useProctoringMonitor();
+  const signals    = useCandidateSignals();
+
+  // Accumulates per-question aggregates for the backend signals payload
+  const signalAggregatesRef = useRef<any[]>([]);
+
+  // Stable refs for use inside runInterview without stale closure
+  const proctoringRef = useRef(proctoring);
+  const signalsRef    = useRef(signals);
+  useEffect(() => { proctoringRef.current = proctoring; }, [proctoring]);
+  useEffect(() => { signalsRef.current    = signals;    }, [signals]);
+
+  // useFaceAnalysis is wired here — it calls proctoring.pushFrame + signals.pushFrame
+  // on every detection tick via the onFrame callback.
+  const faceAnalysis = useFaceAnalysis(
+    useCallback((frame) => {
+      proctoringRef.current.pushFrame(frame);
+      signalsRef.current.pushFrame(frame);
+    }, []),
+  );
+
+  // Camera-denied modal: shown as a blocking overlay when camera is required
+  // but access was denied. Interview is NOT silently continued without camera.
+  const [showCameraModal, setShowCameraModal] = useState(false);
+  useEffect(() => {
+    if (faceAnalysis.error && faceAnalysis.error !== "model_load_failed") {
+      setShowCameraModal(true);
+    }
+  }, [faceAnalysis.error]);
+
   // ── Timer ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     const t = setInterval(() => setElapsedSec(s => s + 1), 1000);
@@ -207,36 +269,47 @@ const InterviewRoom = () => {
     return `${m}:${sec}`;
   };
 
-  // ── Difficulty dots (based on correctness history) ────────────────────────
-  const difficultyLevel = correctnessHistory.current.length === 0 ? 1
-    : mean(correctnessHistory.current) >= 0.75 ? 3
-    : mean(correctnessHistory.current) >= 0.45 ? 2 : 1;
+  // ── Difficulty dots (driven by the current question's explicit difficulty field) ──
+  const difficultyLevel = difficultyDots(currentDifficulty);
 
   // ── API helpers ───────────────────────────────────────────────────────────
   const evaluateAnswer = useCallback(async (
     mq: Question,
     exchanges: Exchange[],
+    attemptNumber: number,
+    activeDifficulty: string,
   ) => {
     const res = await fetch(`${API}/interview-ai/evaluate-answer`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         main_question:        mq.question,
+        category:             mq.category,
         key_points:           mq.key_points,
         ideal_depth:          mq.ideal_depth,
         exchanges,
         full_transcript_text: transcriptToText(transcriptRef.current),
         strength_label:       strengthLabel(correctnessHistory.current),
+        current_difficulty:   activeDifficulty,
+        attempt_number:       attemptNumber,
       }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || data.error || "Evaluation failed");
-    return data.evaluation;
+    // Returns { scored, evaluation, recommended_action, difficulty_delta }
+    return data as {
+      scored: boolean;
+      evaluation: any;
+      recommended_action: "deepen" | "rephrase" | "move_on";
+      difficulty_delta: "up" | "down" | "same";
+    };
   }, []);
 
   const generateFollowup = useCallback(async (
     mq: Question,
     exchanges: Exchange[],
+    mode: "deepen" | "rephrase" | "clarify",
+    targetDifficulty: string,
   ) => {
     const res = await fetch(`${API}/interview-ai/followup`, {
       method: "POST",
@@ -246,6 +319,8 @@ const InterviewRoom = () => {
         exchanges,
         full_transcript_text: transcriptToText(transcriptRef.current),
         strength_label:       strengthLabel(correctnessHistory.current),
+        mode,
+        target_difficulty:    targetDifficulty,
       }),
     });
     const data = await res.json();
@@ -268,18 +343,90 @@ const InterviewRoom = () => {
     return data.result;
   }, [state.candidateProfile, state.jobData]);
 
+  /** Submit accumulated signals to backend — fire-and-forget, never blocks interview */
+  const submitSignals = useCallback(async (aggregates: any[]) => {
+    if (!aggregates.length) return;
+    try {
+      await fetch(`${API}/interview-ai/signals`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          interview_id: state.applicationId || `session_${Date.now()}`,
+          signals:      aggregates,
+        }),
+      });
+    } catch (e) {
+      // Signals submission failure must never affect the interview
+      console.warn("Signals submission failed (non-fatal):", e);
+    }
+  }, [state.applicationId]);
+
   // ── Main interview orchestration ──────────────────────────────────────────
-  const runInterview = useCallback(async (qs: Question[]) => {
+  const runInterview = useCallback(async (
+    rqs: RapportQuestion[],
+    qs: Question[],
+  ) => {
     if (runningRef.current) return;
     runningRef.current = true;
 
+    let globalIndex = 0; // counts every question shown (rapport + main)
+    const totalQ = rqs.length + qs.length;
+    setTotalQuestions(totalQ);
+
+    // ── PHASE 1: Rapport ──────────────────────────────────────────────────
+    for (const rq of rqs) {
+      if (terminated) break;
+
+      globalIndex += 1;
+      setQuestionIndex(globalIndex);
+      setCurrentCategory("rapport");
+      setCurrenTopic(rq.kind === "greeting" ? "Introduction" : "Background");
+      setCurrentDifficulty("basic"); // rapport is always shown as basic
+      setFollowupCount(0);
+      currentExchangesRef.current = [];
+      setLiveTranscript("");
+
+      // Speak the rapport question
+      setCurrentQuestion(rq.question);
+      setAiMode("speaking");
+      await speak(rq.question);
+
+      // Listen once — no follow-up loop on rapport
+      setAiMode("listening");
+      setLiveTranscript("");
+      const answer = await listenForAnswer(
+        (t) => setLiveTranscript(t),
+        (s) => setSilenceCountdown(s),
+      );
+
+      const exchanges: Exchange[] = [{ question: rq.question, answer }];
+      currentExchangesRef.current = exchanges;
+
+      // Record in transcript as unscored
+      transcriptRef.current.push({
+        id:         `rapport-${rq.id}`,
+        category:   "rapport",
+        topic:      rq.kind === "greeting" ? "Greeting" : "Self Introduction",
+        key_points: [],
+        exchanges,
+        final_eval: null,
+        scored:     false,
+      });
+    }
+
+    // ── PHASE 2: Main questions ───────────────────────────────────────────
     for (let qi = 0; qi < qs.length; qi++) {
       if (terminated) break;
       const mq = qs[qi];
 
-      setQuestionIndex(qi + 1);
+      globalIndex += 1;
+      setQuestionIndex(globalIndex);
       setFollowupCount(0);
       currentExchangesRef.current = [];
+
+      // Difficulty starts at the question's labelled difficulty
+      let activeDifficulty = mq.difficulty || "basic";
+      setCurrentDifficulty(activeDifficulty);
 
       const questionText = `${mq.transition || ""} ${mq.question}`.trim();
       setCurrentQuestion(questionText);
@@ -287,11 +434,14 @@ const InterviewRoom = () => {
       setCurrentCategory(mq.category);
       setLiveTranscript("");
 
+      // ── Signal tracking for this question ───────────────────────────────
+      signalsRef.current.startQuestion(mq.id);
+
       // Speak the question
       setAiMode("speaking");
       await speak(questionText);
 
-      // Listen for answer
+      // Listen for initial answer
       setAiMode("listening");
       setLiveTranscript("");
       const answer = await listenForAnswer(
@@ -304,25 +454,33 @@ const InterviewRoom = () => {
 
       let lastEval: any = null;
 
-      // Follow-up loop
+      // ── Follow-up loop — driven entirely by backend recommendations ────
       for (let fu = 0; fu < MAX_FOLLOWUPS; fu++) {
         setAiMode("processing");
 
-        let evalResult: any;
+        let evalResult: Awaited<ReturnType<typeof evaluateAnswer>>;
         try {
-          evalResult = await evaluateAnswer(mq, exchanges);
+          evalResult = await evaluateAnswer(mq, exchanges, fu + 1, activeDifficulty);
         } catch (e: any) {
           console.error("Eval error:", e.message);
           break;
         }
-        lastEval = evalResult;
+        lastEval = evalResult.evaluation;
 
-        const threshold = followupThreshold(fu);
-        if ((evalResult.completeness_score ?? 1.0) >= threshold) break;
+        // Update difficulty based on backend delta (clamped server-side already)
+        activeDifficulty = nextDifficulty(activeDifficulty, evalResult.difficulty_delta);
+        setCurrentDifficulty(activeDifficulty);
+
+        // Backend decides the action — no threshold reimplementation here
+        const action = evalResult.recommended_action; // "deepen" | "rephrase" | "move_on"
+        if (action === "move_on") break;
+
+        // Map action to followup mode
+        const fuMode = action === "rephrase" ? "rephrase" : "deepen";
 
         let followupData: { reaction: string; followup_question: string };
         try {
-          followupData = await generateFollowup(mq, exchanges);
+          followupData = await generateFollowup(mq, exchanges, fuMode, activeDifficulty);
         } catch (e: any) {
           console.error("Followup error:", e.message);
           break;
@@ -347,7 +505,7 @@ const InterviewRoom = () => {
         currentExchangesRef.current = exchanges;
       }
 
-      correctnessHistory.current.push(lastEval?.correctness_score ?? 0.5);
+      correctnessHistory.current.push(lastEval?.combined_score ?? lastEval?.correctness_score ?? 0.5);
       transcriptRef.current.push({
         id:         mq.id,
         category:   mq.category,
@@ -355,15 +513,28 @@ const InterviewRoom = () => {
         key_points: mq.key_points || [],
         exchanges,
         final_eval: lastEval,
+        scored:     true,
       });
+
+      // ── Collect per-question signals aggregate ───────────────────────────
+      const agg = signalsRef.current.endQuestion(
+        proctoringRef.current.violations.filter(
+          v => v.startTime >= (Date.now() - 300_000), // last 5 min — wide window
+        ),
+      );
+      if (agg) signalAggregatesRef.current.push(agg);
     }
 
-    // Final scoring
+    // ── Final scoring ─────────────────────────────────────────────────────
     setAiMode("processing");
     setCurrentQuestion("Scoring your interview, please wait…");
     setCurrenTopic("");
     setCurrentCategory("");
+    setCurrentDifficulty("basic");
     setLiveTranscript("");
+
+    // Submit signals in parallel with final scoring — non-blocking
+    submitSignals(signalAggregatesRef.current);
 
     try {
       const result = await computeFinalScore();
@@ -372,14 +543,14 @@ const InterviewRoom = () => {
       setErrorMsg("Could not generate final score: " + e.message);
     }
     setIsFinished(true);
-  }, [evaluateAnswer, generateFollowup, computeFinalScore, terminated]);
+  }, [evaluateAnswer, generateFollowup, computeFinalScore, submitSignals, terminated]);
 
   // Start on mount when questions are ready
   useEffect(() => {
     if (questions.length > 0 && !runningRef.current) {
-      runInterview(questions);
+      runInterview(rapportQuestions, questions);
     }
-  }, [questions, runInterview]);
+  }, [questions, rapportQuestions, runInterview]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // TERMINATED screen
@@ -505,10 +676,10 @@ const InterviewRoom = () => {
   // MAIN INTERVIEW screen
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-background p-4">
+    <div className="h-screen bg-background p-4 flex flex-col">
 
       {/* ── Top bar ── */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 flex-shrink-0">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
             <Brain className="w-4 h-4 text-primary-foreground" />
@@ -519,7 +690,7 @@ const InterviewRoom = () => {
         <div className="flex items-center gap-4">
           <div className="glass-panel px-4 py-2 flex items-center gap-2">
             <span className="text-xs text-muted-foreground">Question</span>
-            <span className="font-display text-primary">{questionIndex}/{questions.length || "?"}</span>
+            <span className="font-display text-primary">{questionIndex}/{totalQuestions || "?"}</span>
           </div>
           <div className="glass-panel px-4 py-2 flex items-center gap-2">
             <Clock className="w-4 h-4 text-primary" />
@@ -545,11 +716,11 @@ const InterviewRoom = () => {
         </div>
       </div>
 
-      {/* ── Main grid ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+      {/* ── Main grid — grows to fill remaining screen height ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1 min-h-0">
 
         {/* AI avatar + question */}
-        <GlassCard variant="neon" hover={false} className="flex flex-col items-center justify-center relative scan-line p-6 gap-4">
+        <GlassCard variant="neon" hover={false} className="flex flex-col items-center justify-center relative scan-line p-6 gap-4 h-full">
 
           {/* Orb */}
           <div className="relative">
@@ -590,20 +761,20 @@ const InterviewRoom = () => {
         </GlassCard>
 
         {/* Candidate camera + live transcript */}
-        <div className="flex flex-col gap-4">
-          <GlassCard variant="neon" hover={false} className="flex-1 flex items-center justify-center relative min-h-[200px]">
-            <div className="text-center">
-              <Camera className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-              <p className="text-sm text-muted-foreground">Candidate Camera Feed</p>
-            </div>
-            <div className="absolute top-4 right-4 flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-destructive animate-glow-pulse" />
-              <span className="text-xs text-muted-foreground">LIVE</span>
-            </div>
-          </GlassCard>
+        <div className="flex flex-col gap-4 h-full min-h-0">
+          {/* Camera feed — CameraPreview owns the video element */}
+          <div className="flex-1 min-h-0">
+            <CameraPreview
+              videoRef={faceAnalysis.videoRef}
+              ready={faceAnalysis.ready}
+              error={faceAnalysis.error}
+              proctoringStatus={proctoring.status}
+              activeViolations={proctoring.activeViolations}
+            />
+          </div>
 
           {/* Live transcript box */}
-          <GlassCard variant="neon" hover={false} className="p-4">
+          <GlassCard variant="neon" hover={false} className="p-4 flex-shrink-0">
             <div className="flex items-center justify-between mb-2">
               <h4 className="text-xs text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                 <Mic className="w-3 h-3" /> Your Answer
@@ -623,63 +794,49 @@ const InterviewRoom = () => {
         </div>
       </div>
 
-      {/* ── Metrics row ── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-
-        {/* Emotion Analysis */}
-        <GlassCard variant="neon" hover={false}>
-          <h4 className="text-xs text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
-            <BarChart3 className="w-3 h-3" /> Emotion Analysis
-          </h4>
-          <div className="space-y-2">
-            {[
-              { label: "Confidence", value: 78, color: "bg-primary" },
-              { label: "Calm",       value: 65, color: "bg-neon-purple" },
-              { label: "Engaged",    value: 82, color: "bg-primary" },
-              { label: "Stress",     value: 25, color: "bg-destructive" },
-            ].map((e) => (
-              <div key={e.label} className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground w-20">{e.label}</span>
-                <div className="flex-1 h-1.5 rounded-full bg-muted/30">
-                  <div className={`h-full rounded-full ${e.color} transition-all`} style={{ width: `${e.value}%` }} />
-                </div>
-                <span className="text-xs font-mono text-foreground w-8">{e.value}%</span>
-              </div>
-            ))}
-          </div>
-        </GlassCard>
-
-        {/* Confidence meter */}
-        <GlassCard variant="neon" hover={false} className="flex flex-col items-center justify-center">
-          <h4 className="text-xs text-muted-foreground uppercase tracking-wider mb-4">Confidence</h4>
-          <div className="relative w-28 h-28">
-            <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
-              <circle cx="50" cy="50" r="42" fill="none" stroke="hsl(222, 30%, 14%)" strokeWidth="6" />
-              <circle cx="50" cy="50" r="42" fill="none"
-                stroke="hsl(185, 100%, 50%)" strokeWidth="6"
-                strokeDasharray={`${78 * 2.64} ${264 - 78 * 2.64}`}
-                strokeLinecap="round"
-                className="drop-shadow-[0_0_8px_hsl(185_100%_50%/0.5)]"
-              />
-            </svg>
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="font-display text-2xl text-primary neon-glow">78%</span>
+      {/* ── Camera-denied blocking modal ── */}
+      {showCameraModal && (
+        <div className="fixed inset-0 z-[150] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-background border border-border/50 rounded-2xl p-8 max-w-sm w-full text-center space-y-5 shadow-2xl">
+            <div className="w-14 h-14 rounded-full bg-destructive/10 border border-destructive/30 flex items-center justify-center mx-auto">
+              <ShieldOff className="w-7 h-7 text-destructive" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-foreground mb-1">Camera Access Required</h2>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                {faceAnalysis.error === "permission_denied_os"
+                  ? "Your operating system is blocking camera access. Open System Preferences / Settings → Privacy → Camera and allow your browser."
+                  : faceAnalysis.error === "not_found"
+                  ? "No camera was detected. Connect a webcam and reload the page."
+                  : faceAnalysis.error === "in_use"
+                  ? "Your camera is being used by another application. Close it and reload."
+                  : "Camera access was denied. Click the camera icon in your browser's address bar to allow access, then reload."}
+              </p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => window.location.reload()}
+                className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-all"
+              >
+                Reload &amp; Try Again
+              </button>
+              <button
+                onClick={() => setShowCameraModal(false)}
+                className="w-full py-2.5 rounded-lg border border-border/40 text-muted-foreground text-sm hover:bg-muted/20 transition-all"
+              >
+                Continue Without Camera
+              </button>
             </div>
           </div>
-        </GlassCard>
+        </div>
+      )}
 
-        {/* Voice stability */}
-        <GlassCard variant="neon" hover={false}>
-          <h4 className="text-xs text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
-            <TrendingUp className="w-3 h-3" /> Voice Stability
-          </h4>
-          <WaveformAnimation bars={24} className="h-16 mb-3" />
-          <div className="flex justify-between text-xs">
-            <span className="text-muted-foreground">Stability</span>
-            <span className="text-primary font-mono">86%</span>
-          </div>
-        </GlassCard>
-      </div>
+      {/* ── Dev debug panel (VITE_DEBUG_PROCTORING=true only) ── */}
+      <ProctoringDebugPanel
+        lastFrame={faceAnalysis.lastFrame}
+        proctoring={proctoring}
+        signals={signals}
+      />
     </div>
   );
 };

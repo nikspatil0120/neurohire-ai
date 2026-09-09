@@ -289,10 +289,11 @@ const Interviews = () => {
 
         // Store for navigation
         (window as any).__interviewPayload = {
-          questions:        data.questions,
-          candidateProfile: candidate,
-          jobData:          job,
-          applicationId:    app._id,
+          rapport_questions: data.rapport_questions || [],
+          questions:         data.questions,
+          candidateProfile:  candidate,
+          jobData:           job,
+          applicationId:     app._id,
         };
 
         // If phase 2 slow crawl is already done → finish immediately
@@ -306,10 +307,11 @@ const Interviews = () => {
         console.error("Question generation failed:", err.message);
         // Navigate anyway with empty questions — room handles gracefully
         navigate("/candidate/interview-room", { state: {
-          questions:        [],
-          candidateProfile: {},
-          jobData:          {},
-          applicationId:    app?._id || "",
+          rapport_questions: [],
+          questions:         [],
+          candidateProfile:  {},
+          jobData:           {},
+          applicationId:     app?._id || "",
         }});
       }
     };
