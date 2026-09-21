@@ -331,6 +331,22 @@ async def apply_for_job(app_data: ApplicationCreate):
             {"_id": job_oid},
             {"$inc": {"applications": 1}}
         )
+        
+        # Send application confirmation email
+        try:
+            from app.services.email_service import email_service
+            import asyncio
+            # Send application confirmation email in background
+            asyncio.create_task(email_service.send_application_confirmation(
+                app_data.candidate_email,
+                app_data.candidate_name,
+                job.get("title", ""),
+                organization_name
+            ))
+            logger.info(f"Application confirmation email queued for {app_data.candidate_email}")
+        except Exception as email_error:
+            logger.error(f"Failed to queue application confirmation email: {email_error}")
+            # Don't fail application if email fails
 
         created = await mongodb["applications"].find_one({"_id": result.inserted_id})
         return {"success": True, "application": application_helper(created)}
@@ -496,6 +512,37 @@ async def update_application_status(application_id: str, update: ApplicationStat
             raise HTTPException(status_code=404, detail="Application not found")
 
         updated = await mongodb["applications"].find_one({"_id": app_oid})
+        
+        # Send email based on status change
+        try:
+            from app.services.email_service import email_service
+            import asyncio
+            
+            candidate_email = updated.get("candidate_email", "")
+            candidate_name = updated.get("candidate_name", "")
+            job_title = updated.get("job_title", "")
+            company_name = updated.get("organization_name", "")
+            
+            if update.application_status == "selected":
+                asyncio.create_task(email_service.send_selection_email(
+                    candidate_email,
+                    candidate_name,
+                    job_title,
+                    company_name
+                ))
+                logger.info(f"Selection email queued for {candidate_email}")
+            elif update.application_status == "rejected":
+                asyncio.create_task(email_service.send_rejection_email(
+                    candidate_email,
+                    candidate_name,
+                    job_title,
+                    company_name
+                ))
+                logger.info(f"Rejection email queued for {candidate_email}")
+        except Exception as email_error:
+            logger.error(f"Failed to queue status update email: {email_error}")
+            # Don't fail status update if email fails
+        
         return {"success": True, "application": application_helper(updated)}
 
     except HTTPException:

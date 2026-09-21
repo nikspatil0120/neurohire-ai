@@ -43,3 +43,13 @@ AI_*.md
 QUICK_REFERENCE.md
 QUICKSTART.md
 DATABASE_SCHEMA.md
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/

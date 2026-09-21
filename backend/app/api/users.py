@@ -396,6 +396,15 @@ async def save_profile_data(profile_data: ProfileDataRequest):
                 for proj in projects_to_save
             ]
         
+        # Check if user already has profile data (to determine if this is first time creation)
+        existing_user = await users_collection.find_one({"email": user_email})
+        is_first_profile_creation = (
+            existing_user and 
+            not existing_user.get("phone") and 
+            not existing_user.get("education") and 
+            not existing_user.get("experience")
+        )
+        
         # Update user document with full profile data
         result = await users_collection.update_one(
             {"email": user_email},
@@ -422,6 +431,22 @@ async def save_profile_data(profile_data: ProfileDataRequest):
         )
         
         logger.info(f"Profile data saved for user: {user_email}")
+        
+        # Send welcome email only if this is the first time profile is being created
+        if is_first_profile_creation:
+            try:
+                from app.services.email_service import email_service
+                import asyncio
+                # Send welcome email in background
+                asyncio.create_task(email_service.send_welcome_email(
+                    user_email, 
+                    profile_data.fullName
+                ))
+                logger.info(f"Welcome email queued for first profile creation: {user_email}")
+            except Exception as email_error:
+                logger.error(f"Failed to queue welcome email: {email_error}")
+                # Don't fail profile save if email fails
+        
         return {"success": True, "message": "Profile data saved successfully"}
         
     except HTTPException:
@@ -584,6 +609,14 @@ async def save_recruiter_profile_data(profile_data: RecruiterProfileDataRequest,
                 detail="Recruiter email is required"
             )
         
+        # Check if recruiter already has profile data (to determine if this is first time creation)
+        existing_user = await users_collection.find_one({"email": user_email})
+        is_first_profile_creation = (
+            existing_user and 
+            not existing_user.get("organization_name") and 
+            not existing_user.get("recruiter_name")
+        )
+        
         # Update user document with recruiter profile data
         result = await users_collection.update_one(
             {"email": user_email},
@@ -608,6 +641,21 @@ async def save_recruiter_profile_data(profile_data: RecruiterProfileDataRequest,
         )
         
         logger.info(f"Recruiter profile data saved for: {user_email}")
+        
+        # Send welcome email only if this is the first time recruiter profile is being created
+        if is_first_profile_creation:
+            try:
+                from app.services.email_service import email_service
+                import asyncio
+                # Send welcome email in background
+                asyncio.create_task(email_service.send_welcome_email(
+                    user_email, 
+                    profile_data.recruiterName
+                ))
+                logger.info(f"Welcome email queued for first recruiter profile creation: {user_email}")
+            except Exception as email_error:
+                logger.error(f"Failed to queue welcome email: {email_error}")
+                # Don't fail profile save if email fails
         return {"success": True, "message": "Recruiter profile data saved successfully"}
         
     except HTTPException:
