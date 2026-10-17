@@ -9,6 +9,7 @@ import {
   Trophy, LibraryBig, X,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 
 const API = "http://localhost:8000/api/v1";
 
@@ -46,6 +47,7 @@ interface CodingProblem {
 const CreateJob = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user } = useAuth();
 
   // Basic form state
   const [formData, setFormData] = useState({
@@ -139,8 +141,20 @@ const CreateJob = () => {
   const getRecruiterInfo = () => {
     try {
       const u = JSON.parse(localStorage.getItem("user") || "{}");
-      return { id: u.id || "", email: u.email || "", name: u.name || u.full_name || "", organization: u.organization_name || "" };
-    } catch { return { id: "", email: "", name: "", organization: "" }; }
+      return {
+        id: user?.id || u.id || "",
+        email: user?.email || u.email || "",
+        name: user?.name || u.name || u.full_name || "",
+        organization: (user as any)?.organization_name || u.organization_name || "",
+      };
+    } catch {
+      return {
+        id: user?.id || "",
+        email: user?.email || "",
+        name: user?.name || "",
+        organization: (user as any)?.organization_name || "",
+      };
+    }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {

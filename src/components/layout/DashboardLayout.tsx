@@ -1,8 +1,9 @@
 import { ReactNode, useState, useRef, useEffect } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { LucideIcon, CheckCircle, RefreshCw, Settings, Maximize2, Minimize2 } from "lucide-react";
 import UserProfile from "@/components/UserProfile";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface NavItem {
   label: string;
@@ -21,6 +22,8 @@ interface DashboardLayoutProps {
 
 const DashboardLayout = ({ children, navItems, title, solvedCount = 0, totalProblems = 0 }: DashboardLayoutProps) => {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { logout } = useAuth();
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [backgroundTheme, setBackgroundTheme] = useState<"normal" | "ruled">("normal");
@@ -83,6 +86,25 @@ const DashboardLayout = ({ children, navItems, title, solvedCount = 0, totalProb
           {navItems.map((item) => {
             const isActive = location.pathname === item.href;
             const Icon = item.icon;
+            const isLogout = item.label.toLowerCase() === "logout" || item.href === "/login";
+
+            if (isLogout) {
+              return (
+                <button
+                  key={item.href}
+                  type="button"
+                  onClick={async () => {
+                    await logout();
+                    navigate("/login");
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-all duration-200 text-left"
+                >
+                  <Icon className="w-4 h-4" />
+                  <span className="flex-1">{item.label}</span>
+                </button>
+              );
+            }
+
             return (
               <Link
                 key={item.href}
