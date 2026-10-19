@@ -4,9 +4,10 @@ import GlassCard from "@/components/GlassCard";
 import {
   LayoutDashboard, FilePlus, Database, BarChart2, MessageCircle, LogOut,
   User, Plus, Edit, Trash2, X, Check, ChevronDown, ChevronUp,
-  BookOpen, Code2, FlaskConical, LibraryBig,
+  BookOpen, Code2, FlaskConical, LibraryBig, Save, CheckCircle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 
 const API = "http://localhost:8000/api/v1";
 
@@ -47,8 +48,8 @@ interface Question {
 
 const blankAptitude = (): Omit<Question, "id"> => ({
   question_type: "aptitude", subtype: "mcq",
-  question_text: "", options: ["", "", "", ""], correct_answer: 0,
-  explanation: "", difficulty: "Medium", category: "",
+  question_text: "", options: ["", "", "", ""], correct_answer: null,
+  explanation: "", difficulty: "Easy", category: "Technical",
   description: "", test_cases: [], tags: [],
 });
 
@@ -74,8 +75,12 @@ const QuestionDB = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<Omit<Question, "id">>(blankAptitude());
   const [saving, setSaving] = useState(false);
+  const [tagsInput, setTagsInput] = useState("");
+
+  const { user } = useAuth();
 
   const getEmail = () => {
+    if (user?.email) return user.email;
     try { return JSON.parse(localStorage.getItem("user") || "{}").email || ""; } catch { return ""; }
   };
 
@@ -147,7 +152,7 @@ const QuestionDB = () => {
     finally { setLoading(false); }
   };
 
-  useEffect(() => { loadQuestions(); }, []);
+  useEffect(() => { loadQuestions(); }, [user?.email]);
 
   // ── Filtered list ──────────────────────────────────────────────────────────
 
@@ -160,16 +165,27 @@ const QuestionDB = () => {
   const openAdd = (type: "aptitude" | "coding") => {
     setEditingId(null);
     setForm(type === "aptitude" ? blankAptitude() : blankCoding());
+    setTagsInput("");
     setModal(type);
   };
 
   const openEdit = (q: Question) => {
     setEditingId(q.id);
-    setForm({ ...q });
+    let options = q.options ? [...q.options] : [];
+    if (q.question_type === "aptitude") {
+      while (options.length < 4) options.push("");
+      if (options.length > 4) options = options.slice(0, 4);
+    }
+    setForm({ ...q, options });
+    setTagsInput((q.tags || []).join(", "));
     setModal(q.question_type);
   };
 
-  const closeModal = () => { setModal(null); setEditingId(null); };
+  const closeModal = () => {
+    setModal(null);
+    setEditingId(null);
+    setTagsInput("");
+  };
 
   // ── Save ───────────────────────────────────────────────────────────────────
 
@@ -177,10 +193,18 @@ const QuestionDB = () => {
     if (!form.question_text.trim()) {
       toast({ title: "Error", description: "Question text is required", variant: "destructive" }); return;
     }
+    if (modal === "aptitude" && (form.correct_answer === null || form.correct_answer === undefined)) {
+      toast({ title: "Error", description: "Please select the correct option", variant: "destructive" }); return;
+    }
     setSaving(true);
     const email = getEmail();
     try {
-      const payload = { ...form, recruiter_email: email };
+      const parsedTags = tagsInput.split(",").map(t => t.trim()).filter(Boolean);
+      const payload = {
+        ...form,
+        tags: parsedTags,
+        recruiter_email: email,
+      };
       let res: Response;
       if (editingId) {
         res = await fetch(`${API}/recruiter-questions/${editingId}`, {
@@ -247,7 +271,7 @@ const QuestionDB = () => {
             onClick={() => openAdd("coding")}
             className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-secondary/20 text-secondary border border-secondary/40 hover:bg-secondary/30 transition-all text-sm font-medium"
           >
-            <Code2 className="w-4 h-4" /> Add Technical Question
+            <Code2 className="w-4 h-4" /> Add DSA Question
           </button>
           <button
             onClick={openAdminPicker}
@@ -269,7 +293,7 @@ const QuestionDB = () => {
                   : "bg-muted/10 text-muted-foreground border-border/30 hover:border-primary/30"
               }`}
             >
-              {f === "all" ? "All Questions" : f === "aptitude" ? "Aptitude" : "Technical"}
+              {f === "all" ? "All Questions" : f === "aptitude" ? "Aptitude" : "DSA"}
             </button>
           ))}
         </div>
@@ -298,7 +322,7 @@ const QuestionDB = () => {
                           ? "bg-primary/20 text-primary border-primary/40"
                           : "bg-secondary/20 text-secondary border-secondary/40"
                       }`}>
-                        {q.question_type === "aptitude" ? "Aptitude" : "Technical"}
+                        {q.question_type === "aptitude" ? "Aptitude" : "DSA"}
                       </span>
                       {q.question_type === "aptitude" && (
                         <span className="px-2 py-0.5 rounded-full text-xs border border-border/30 text-muted-foreground">
@@ -351,6 +375,16 @@ const QuestionDB = () => {
                   {q.explanation && (
                     <p className="text-xs text-muted-foreground italic">💡 {q.explanation}</p>
                   )}
+
+                  {q.tags && q.tags.length > 0 && (
+                    <div className="flex gap-1.5 flex-wrap pt-1">
+                      {q.tags.map((t, idx) => (
+                        <span key={idx} className="px-2 py-0.5 rounded text-[11px] bg-muted/20 text-muted-foreground border border-border/30">
+                          #{t}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </GlassCard>
             ))}
@@ -358,15 +392,158 @@ const QuestionDB = () => {
         )}
       </div>
 
-      {/* ── Modal ── */}
-      {modal && (
+      {/* ── Aptitude Question Modal (Clean solid white UI) ── */}
+      {modal === "aptitude" && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-start justify-center p-4 overflow-y-auto">
+          <div className="w-full max-w-2xl my-8 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden text-gray-900">
+            <div className="p-6 sm:p-7 space-y-5">
+              <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+                <h3 className="text-xl font-bold text-gray-900">
+                  {editingId ? "Edit Question" : "Add New Question"}
+                </h3>
+                <button
+                  type="button"
+                  onClick={closeModal}
+                  className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5 block">Category</label>
+                  <select
+                    value={form.category}
+                    onChange={(e) => setField("category", e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-sm text-gray-900 focus:outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 transition-all cursor-pointer"
+                  >
+                    <option value="Technical">Technical</option>
+                    <option value="Verbal">Verbal</option>
+                    <option value="Quantitative">Quantitative</option>
+                    <option value="Reasoning">Reasoning</option>
+                    {form.category && !["Technical", "Verbal", "Quantitative", "Reasoning"].includes(form.category) && (
+                      <option value={form.category}>{form.category}</option>
+                    )}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5 block">Difficulty</label>
+                  <select
+                    value={form.difficulty}
+                    onChange={(e) => setField("difficulty", e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-sm text-gray-900 focus:outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 transition-all cursor-pointer"
+                  >
+                    <option value="Easy">Easy</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Hard">Hard</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5 block">Question</label>
+                <textarea
+                  value={form.question_text}
+                  onChange={(e) => setField("question_text", e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 transition-all resize-none"
+                  rows={3}
+                  placeholder="Enter the question..."
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2 block">Options</label>
+                <div className="space-y-2.5">
+                  {form.options.map((option, index) => (
+                    <div key={index} className="flex items-center gap-2.5">
+                      <input
+                        type="radio"
+                        name="correctOption"
+                        checked={form.correct_answer === index}
+                        onChange={() => setField("correct_answer", index)}
+                        className="w-4 h-4 text-cyan-600 accent-cyan-500 cursor-pointer"
+                      />
+                      <input
+                        type="text"
+                        value={option}
+                        onChange={(e) => setOption(index, e.target.value)}
+                        className={`flex-1 px-3.5 py-2.5 border rounded-xl text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 transition-all ${
+                          form.correct_answer === index
+                            ? "bg-cyan-50/60 border-cyan-400 font-medium"
+                            : "bg-white border-gray-300"
+                        }`}
+                        placeholder={`Option ${index + 1}`}
+                      />
+                      {form.correct_answer === index && <CheckCircle className="w-5 h-5 text-emerald-500 shrink-0" />}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5 block">Explanation</label>
+                <textarea
+                  value={form.explanation}
+                  onChange={(e) => setField("explanation", e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 transition-all resize-none"
+                  rows={2}
+                  placeholder="Explain the correct answer..."
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5 block">Tags (comma-separated)</label>
+                <input
+                  type="text"
+                  value={tagsInput}
+                  onChange={(e) => setTagsInput(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 transition-all"
+                  placeholder="e.g., algebra, grammar, logic"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={closeModal}
+                  className="px-5 py-2.5 border border-gray-300 rounded-xl text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors shadow-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="px-5 py-2.5 bg-cyan-500 hover:bg-cyan-600 active:bg-cyan-700 text-white font-medium rounded-xl text-sm transition-all shadow-md shadow-cyan-500/20 disabled:opacity-50 flex items-center gap-2"
+                >
+                  {saving ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      Save
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Technical Coding Question Modal ── */}
+      {modal === "coding" && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-start justify-center p-4 overflow-y-auto">
           <div className="bg-card border border-border/50 rounded-xl shadow-2xl w-full max-w-2xl my-6">
             {/* Header */}
             <div className="flex items-center justify-between p-6 border-b border-border/30">
               <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-                {modal === "aptitude" ? <BookOpen className="w-5 h-5 text-primary" /> : <Code2 className="w-5 h-5 text-secondary" />}
-                {editingId ? "Edit" : "Add"} {modal === "aptitude" ? "Aptitude" : "Technical"} Question
+                <Code2 className="w-5 h-5 text-secondary" />
+                {editingId ? "Edit" : "Add"} DSA Question
               </h2>
               <button onClick={closeModal} className="p-2 rounded-lg bg-muted/20 hover:bg-muted/30 text-muted-foreground transition-colors">
                 <X className="w-5 h-5" />
@@ -375,26 +552,6 @@ const QuestionDB = () => {
 
             {/* Body */}
             <div className="p-6 space-y-5">
-
-              {/* Common: type selector for aptitude */}
-              {modal === "aptitude" && (
-                <div className="flex gap-3">
-                  {(["mcq", "numerical"] as AptitudeSubtype[]).map(st => (
-                    <button
-                      key={st}
-                      onClick={() => setField("subtype", st)}
-                      className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-all ${
-                        form.subtype === st
-                          ? "bg-primary/20 text-primary border-primary/50"
-                          : "bg-muted/10 text-muted-foreground border-border/30 hover:border-primary/30"
-                      }`}
-                    >
-                      {st === "mcq" ? "MCQ (Multiple Choice)" : "Numerical (Number answer)"}
-                    </button>
-                  ))}
-                </div>
-              )}
-
               {/* Question text */}
               <div>
                 <label className="text-xs text-muted-foreground uppercase tracking-wider mb-1.5 block">Question *</label>
@@ -408,112 +565,57 @@ const QuestionDB = () => {
               </div>
 
               {/* Coding: description */}
-              {modal === "coding" && (
-                <div>
-                  <label className="text-xs text-muted-foreground uppercase tracking-wider mb-1.5 block">Problem Description</label>
-                  <textarea
-                    rows={4}
-                    value={form.description}
-                    onChange={e => setField("description", e.target.value)}
-                    placeholder="Detailed problem description, constraints, examples..."
-                    className="w-full bg-muted/10 border border-border/30 rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary/50 resize-none"
-                  />
-                </div>
-              )}
+              <div>
+                <label className="text-xs text-muted-foreground uppercase tracking-wider mb-1.5 block">Problem Description</label>
+                <textarea
+                  rows={4}
+                  value={form.description}
+                  onChange={e => setField("description", e.target.value)}
+                  placeholder="Detailed problem description, constraints, examples..."
+                  className="w-full bg-muted/10 border border-border/30 rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary/50 resize-none"
+                />
+              </div>
 
-              {/* MCQ options */}
-              {modal === "aptitude" && form.subtype === "mcq" && (
-                <div>
-                  <label className="text-xs text-muted-foreground uppercase tracking-wider mb-1.5 block">Options (click to mark correct)</label>
-                  <div className="space-y-2">
-                    {form.options.map((opt, i) => (
-                      <div key={i} className="flex items-center gap-2">
-                        <button
-                          onClick={() => setField("correct_answer", i)}
-                          className={`w-7 h-7 shrink-0 rounded-full border text-xs font-bold transition-all ${
-                            form.correct_answer === i
-                              ? "bg-green-500/30 text-green-400 border-green-500/50"
-                              : "bg-muted/10 text-muted-foreground border-border/30 hover:border-green-500/40"
-                          }`}
-                        >
-                          {String.fromCharCode(65 + i)}
-                        </button>
-                        <input
-                          value={opt}
-                          onChange={e => setOption(i, e.target.value)}
-                          placeholder={`Option ${String.fromCharCode(65 + i)}`}
-                          className="flex-1 bg-muted/10 border border-border/30 rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary/50"
-                        />
-                        {form.options.length > 2 && (
-                          <button onClick={() => removeOption(i)} className="p-1.5 text-muted-foreground hover:text-red-400 transition-colors">
-                            <X className="w-4 h-4" />
+              {/* Coding: test cases */}
+              <div>
+                <label className="text-xs text-muted-foreground uppercase tracking-wider mb-1.5 block">Test Cases</label>
+                <div className="space-y-3">
+                  {form.test_cases.map((tc, i) => (
+                    <div key={i} className="p-3 rounded-lg border border-border/30 bg-muted/5 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground font-medium">Test Case {i + 1}</span>
+                        {form.test_cases.length > 1 && (
+                          <button onClick={() => removeTC(i)} className="text-muted-foreground hover:text-red-400 transition-colors">
+                            <X className="w-3.5 h-3.5" />
                           </button>
                         )}
                       </div>
-                    ))}
-                    <button onClick={addOption} className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors mt-1">
-                      <Plus className="w-3.5 h-3.5" /> Add option
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Numerical answer */}
-              {modal === "aptitude" && form.subtype === "numerical" && (
-                <div>
-                  <label className="text-xs text-muted-foreground uppercase tracking-wider mb-1.5 block">Correct Answer (number)</label>
-                  <input
-                    type="number"
-                    value={form.correct_answer ?? ""}
-                    onChange={e => setField("correct_answer", e.target.value === "" ? null : Number(e.target.value))}
-                    placeholder="e.g. 42"
-                    className="w-full bg-muted/10 border border-border/30 rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary/50"
-                  />
-                </div>
-              )}
-
-              {/* Coding: test cases */}
-              {modal === "coding" && (
-                <div>
-                  <label className="text-xs text-muted-foreground uppercase tracking-wider mb-1.5 block">Test Cases</label>
-                  <div className="space-y-3">
-                    {form.test_cases.map((tc, i) => (
-                      <div key={i} className="p-3 rounded-lg border border-border/30 bg-muted/5 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-muted-foreground font-medium">Test Case {i + 1}</span>
-                          {form.test_cases.length > 1 && (
-                            <button onClick={() => removeTC(i)} className="text-muted-foreground hover:text-red-400 transition-colors">
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          )}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-xs text-muted-foreground mb-1 block">Input</label>
+                          <textarea rows={2} value={tc.input} onChange={e => setTC(i, "input", e.target.value)}
+                            placeholder="Input value"
+                            className="w-full bg-muted/10 border border-border/30 rounded px-2 py-1.5 text-xs text-foreground font-mono placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/50 resize-none" />
                         </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <label className="text-xs text-muted-foreground mb-1 block">Input</label>
-                            <textarea rows={2} value={tc.input} onChange={e => setTC(i, "input", e.target.value)}
-                              placeholder="Input value"
-                              className="w-full bg-muted/10 border border-border/30 rounded px-2 py-1.5 text-xs text-foreground font-mono placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/50 resize-none" />
-                          </div>
-                          <div>
-                            <label className="text-xs text-muted-foreground mb-1 block">Expected Output</label>
-                            <textarea rows={2} value={tc.expected_output} onChange={e => setTC(i, "expected_output", e.target.value)}
-                              placeholder="Expected output"
-                              className="w-full bg-muted/10 border border-border/30 rounded px-2 py-1.5 text-xs text-foreground font-mono placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/50 resize-none" />
-                          </div>
+                        <div>
+                          <label className="text-xs text-muted-foreground mb-1 block">Expected Output</label>
+                          <textarea rows={2} value={tc.expected_output} onChange={e => setTC(i, "expected_output", e.target.value)}
+                            placeholder="Expected output"
+                            className="w-full bg-muted/10 border border-border/30 rounded px-2 py-1.5 text-xs text-foreground font-mono placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/50 resize-none" />
                         </div>
-                        <input value={tc.description} onChange={e => setTC(i, "description", e.target.value)}
-                          placeholder="Description (optional)"
-                          className="w-full bg-muted/10 border border-border/30 rounded px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/50" />
                       </div>
-                    ))}
-                    <button onClick={addTC} className="flex items-center gap-1.5 text-xs text-secondary hover:text-secondary/80 transition-colors">
-                      <Plus className="w-3.5 h-3.5" /> Add test case
-                    </button>
-                  </div>
+                      <input value={tc.description} onChange={e => setTC(i, "description", e.target.value)}
+                        placeholder="Description (optional)"
+                        className="w-full bg-muted/10 border border-border/30 rounded px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/50" />
+                    </div>
+                  ))}
+                  <button onClick={addTC} className="flex items-center gap-1.5 text-xs text-secondary hover:text-secondary/80 transition-colors">
+                    <Plus className="w-3.5 h-3.5" /> Add test case
+                  </button>
                 </div>
-              )}
+              </div>
 
-              {/* Common fields: difficulty, category, explanation */}
+              {/* Difficulty & Category */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs text-muted-foreground uppercase tracking-wider mb-1.5 block">Difficulty</label>

@@ -89,28 +89,39 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             console.log('getCurrentUser response:', response);
             // Handle both response formats: {success: true, data: {user: ...}} or direct user object
             if (response.success && response.data?.user) {
-              setUser(response.data.user);
-              console.log('User restored from API (wrapped):', response.data.user);
+              const u = response.data.user;
+              setUser(u);
+              localStorage.setItem('user', JSON.stringify(u));
+              localStorage.setItem('userEmail', u.email);
+              console.log('User restored from API (wrapped):', u);
             } else if (response.email && response.id) {
               // Direct user object response
-              setUser({
+              const u = {
                 id: response.id,
                 name: response.full_name || response.name,
                 email: response.email,
                 role: response.role,
                 avatar: response.avatar,
-                isActive: response.is_active,
-                lastLogin: response.last_login
-              });
-              console.log('User restored from API (direct):', response);
+                isActive: response.is_active ?? true,
+                lastLogin: response.last_login,
+                organization_name: response.organization_name || ''
+              };
+              setUser(u);
+              localStorage.setItem('user', JSON.stringify(u));
+              localStorage.setItem('userEmail', u.email);
+              console.log('User restored from API (direct):', u);
             } else {
               console.error('Invalid response from getCurrentUser:', response);
               removeAuthToken();
+              localStorage.removeItem('user');
+              localStorage.removeItem('userEmail');
             }
           }
         } catch (error) {
           console.error('Failed to get current user:', error);
           removeAuthToken();
+          localStorage.removeItem('user');
+          localStorage.removeItem('userEmail');
         }
       } else {
         console.log('No token found, user not authenticated');
@@ -139,6 +150,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           const adminToken = "admin_token_hardcoded_" + Date.now();
           setAuthToken(adminToken);
           setUser(adminUser);
+          localStorage.setItem('user', JSON.stringify(adminUser));
+          localStorage.setItem('userEmail', adminUser.email);
           console.log('Admin logged in (hardcoded)');
           return;
         } else {
@@ -175,11 +188,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setAuthToken(data.access_token);
       const userData = {
         id: data.user.id,
-        name: data.user.full_name,
+        name: data.user.full_name || data.user.name,
         email: data.user.email,
         role: data.user.role,
         avatar: undefined,
-        isActive: data.user.is_active,
+        isActive: data.user.is_active ?? true,
         lastLogin: data.user.last_login,
         organization_name: data.user.organization_name || '' // Include organization
       };
@@ -187,6 +200,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       
       // Store full user data in localStorage for job creation
       localStorage.setItem('user', JSON.stringify(userData));
+      localStorage.setItem('userEmail', userData.email);
       
       console.log('User logged in:', data.user);
       return;
@@ -209,9 +223,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const response = await api.register({ name, email, password, role });
       
       if (response.success && response.data) {
-        const { user: userData, token } = response.data;
+        const { user: apiUser, token } = response.data;
         setAuthToken(token);
+        const userData = {
+          id: apiUser.id,
+          name: apiUser.name || apiUser.full_name || name,
+          email: apiUser.email || email,
+          role: apiUser.role || role,
+          avatar: undefined,
+          isActive: apiUser.isActive ?? true,
+          lastLogin: new Date().toISOString(),
+          organization_name: apiUser.organization_name || ''
+        };
         setUser(userData);
+        localStorage.setItem('user', JSON.stringify(userData));
+        localStorage.setItem('userEmail', userData.email);
+        console.log('User signed up and stored in localStorage:', userData);
       } else {
         throw new Error(response.message || 'Registration failed');
       }
@@ -284,8 +311,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       console.error('Logout error:', error);
     } finally {
       removeAuthToken();
-      localStorage.removeItem('googleUser'); // Clear Google user data
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('googleUser');
+      localStorage.removeItem('user');
+      localStorage.removeItem('userEmail');
+      localStorage.removeItem('currentUser');
       setUser(null);
+      console.log('User logged out and local storage cleared');
     }
   };
 

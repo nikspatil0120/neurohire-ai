@@ -147,10 +147,12 @@ async def login(
     from app.core.database import mongo_db
     users_coll = mongo_db["users"]
     
-    # Get user by email from MongoDB
-    user = await users_coll.find_one({"email": form_data.username})
+    # Get user by email from MongoDB (case-insensitive)
+    user = await users_coll.find_one({"email": {"$regex": f"^{form_data.username.strip()}$", "$options": "i"}})
     
-    if not user or not verify_password(form_data.password, user["hashed_password"]):
+    hashed_pwd = user.get("hashed_password") or user.get("password") if user else None
+    
+    if not user or not hashed_pwd or not verify_password(form_data.password, hashed_pwd):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
@@ -175,11 +177,11 @@ async def login(
         "user": {
             "id": str(user["_id"]),
             "email": user["email"],
-            "full_name": user["full_name"],
-            "role": user["role"],
-            "is_active": user["is_active"],
-            "created_at": user["created_at"],
-            "last_login": user.get("last_login"),
+            "full_name": user.get("full_name") or user.get("name", ""),
+            "role": user.get("role", "candidate"),
+            "is_active": user.get("is_active", user.get("isActive", True)),
+            "created_at": str(user.get("created_at") or user.get("createdAt") or ""),
+            "last_login": str(user.get("last_login") or ""),
             "organization_name": user.get("organization_name", "")  # Include organization
         }
     }

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import GlassCard from "@/components/GlassCard";
 import { 
@@ -7,6 +7,7 @@ import {
   Briefcase, Eye, Edit, Trash2, Globe, FileText, X, Check
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 
 const navItems = [
   { label: "Dashboard", href: "/recruiter/dashboard", icon: LayoutDashboard },
@@ -28,41 +29,72 @@ interface Job {
   created_at: string;
   recruiter_name: string;
   organization_name: string;
+  is_active?: boolean;
+  end_date?: string;
+  start_date?: string;
   deleted_by_recruiter?: boolean;
   admin_deleted?: boolean;
   candidates_deleted?: boolean;
 }
 
+const isJobExpired = (job: Job) => {
+  if (job.status === "expired") return true;
+  if (job.end_date) {
+    try { return new Date() > new Date(job.end_date); } catch { return false; }
+  }
+  return false;
+};
+
+const isJobActive = (job: Job) => {
+  return job.status === "published" && (job.is_active !== false) && !isJobExpired(job);
+};
+
 const JobsCreated = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { toast } = useToast();
+  const { user } = useAuth();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [deleteModalOpen, setDeleteModalOpen] = useState<string | null>(null);
   const [selectedDeleteTypes, setSelectedDeleteTypes] = useState<string[]>([]);
+  const [activeFilter, setActiveFilter] = useState<string>(() => searchParams.get("filter") || "all");
+
+  useEffect(() => {
+    const f = searchParams.get("filter");
+    if (f) {
+      setActiveFilter(f);
+    } else {
+      setActiveFilter("all");
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     loadJobs();
-  }, []);
+  }, [user?.email]);
 
   const loadJobs = async () => {
     setIsLoading(true);
     try {
-      const userStr = localStorage.getItem('user');
-      console.log('[JobsCreated] User from localStorage:', userStr);
+      const email = user?.email || (() => {
+        try {
+          return JSON.parse(localStorage.getItem('user') || '{}')?.email || '';
+        } catch {
+          return '';
+        }
+      })();
       
-      if (!userStr) {
-        console.log('[JobsCreated] No user found in localStorage');
+      if (!email) {
+        console.log('[JobsCreated] No recruiter email found');
         setJobs([]);
+        setIsLoading(false);
         return;
       }
 
-      const user = JSON.parse(userStr);
-      console.log('[JobsCreated] Parsed user:', user);
-      console.log('[JobsCreated] Fetching jobs for recruiter email:', user.email);
+      console.log('[JobsCreated] Fetching jobs for recruiter email:', email);
       
       // Backend endpoint uses recruiter_email, not recruiter_id
-      const apiUrl = `http://localhost:8000/api/v1/jobs/recruiter/${user.email}`;
+      const apiUrl = `http://localhost:8000/api/v1/jobs/recruiter/${encodeURIComponent(email)}`;
       console.log('[JobsCreated] API URL:', apiUrl);
       
       const response = await fetch(apiUrl);
@@ -247,9 +279,58 @@ const JobsCreated = () => {
     );
   }
 
+  const activeCount = jobs.filter(isJobActive).length;
+  const expiredCount = jobs.filter(isJobExpired).length;
+  const draftCount = jobs.filter((j) => j.status === "draft").length;
+  const totalCount = jobs.length;
+
+  const displayedJobs = jobs.filter((job) => {
+    if (activeFilter === "active") return isJobActive(job);
+    if (activeFilter === "expired") return isJobExpired(job);
+    if (activeFilter === "draft") return job.status === "draft";
+    return true;
+  });
+
   return (
     <DashboardLayout navItems={navItems} title="JOBS CREATED">
       <div className="space-y-6">
+        {/* Filter Pills */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {[
+            { id: "all", label: "All Jobs", count: totalCount },
+            { id: "active", label: "Active Jobs", count: activeCount },
+            { id: "expired", label: "Expired", count: expiredCount },
+            { id: "draft", label: "Drafts", count: draftCount },
+          ].map((tab) => {
+            const isSelected = activeFilter === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setActiveFilter(tab.id);
+                  setSearchParams(tab.id === "all" ? {} : { filter: tab.id });
+                }}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 cursor-pointer ${
+                  isSelected
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "bg-muted/40 text-muted-foreground hover:bg-muted/60 hover:text-foreground border border-border/40"
+                }`}
+              >
+                <span>{tab.label}</span>
+                <span
+                  className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
+                    isSelected
+                      ? "bg-primary-foreground/20 text-primary-foreground"
+                      : "bg-muted text-muted-foreground"
+                  }`}
+                >
+                  {tab.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
         {jobs.length === 0 ? (
           <GlassCard variant="neon" hover={false}>
             <div className="text-center py-12">
@@ -264,9 +345,48 @@ const JobsCreated = () => {
               </button>
             </div>
           </GlassCard>
+        ) : displayedJobs.length === 0 ? (
+          <GlassCard variant="neon" hover={false}>
+            <div className="text-center py-12">
+              <Briefcase className="w-16 h-16 mx-auto mb-4 text-muted-foreground opacity-50" />
+              <h3 className="text-lg font-semibold text-foreground mb-2">
+                {activeFilter === "active"
+                  ? "No Active Jobs"
+                  : activeFilter === "expired"
+                  ? "No Expired Jobs"
+                  : activeFilter === "draft"
+                  ? "No Draft Jobs"
+                  : "No Jobs Found"}
+              </h3>
+              <p className="text-muted-foreground mb-4">
+                {activeFilter === "active"
+                  ? "You have no active ongoing jobs. All published jobs may have expired or been saved as drafts."
+                  : "No jobs match the selected filter."}
+              </p>
+              <div className="flex items-center justify-center gap-3">
+                <button
+                  onClick={() => {
+                    setActiveFilter("all");
+                    setSearchParams({});
+                  }}
+                  className="px-4 py-2 rounded-lg bg-muted text-foreground hover:bg-muted/80 transition-all text-sm font-medium cursor-pointer"
+                >
+                  View All Jobs ({totalCount})
+                </button>
+                <button
+                  onClick={() => navigate('/recruiter/create-job')}
+                  className="px-6 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-all text-sm font-medium cursor-pointer"
+                >
+                  Create Job
+                </button>
+              </div>
+            </div>
+          </GlassCard>
         ) : (
           <div className="grid gap-6">
-            {jobs.map((job) => (
+            {displayedJobs.map((job) => {
+              const expired = isJobExpired(job);
+              return (
               <GlassCard key={job._id} variant="neon" hover={true}>
                 <div className="space-y-4">
                   {/* Header */}
@@ -288,6 +408,15 @@ const JobsCreated = () => {
                       }`}>
                         {job.status === "published" ? "Published" : job.status === "expired" ? "Expired" : "Draft"}
                       </span>
+                      {job.status === "published" && (
+                        <span className={`px-3 py-1 rounded-full text-xs font-medium border ${
+                          expired
+                            ? "bg-red-500/20 text-red-400 border-red-500/40"
+                            : "bg-cyan-500/20 text-cyan-400 border-cyan-500/40"
+                        }`}>
+                          {expired ? "Expired" : "Ongoing"}
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -362,7 +491,8 @@ const JobsCreated = () => {
                   </div>
                 </div>
               </GlassCard>
-            ))}
+            );
+          })}
           </div>
         )}
       </div>
