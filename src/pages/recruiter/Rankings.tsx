@@ -6,6 +6,7 @@ import {
   MessageCircle, LogOut, User, Briefcase, Users,
   X, Download, ChevronDown, ChevronUp,
 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 
 const API = "http://localhost:8000/api/v1";
 
@@ -170,6 +171,7 @@ const printReport = (job: Job, rounds: RoundCol[], rows: Application[]) => {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 const Reports = () => {
+  const { user } = useAuth();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
@@ -177,7 +179,7 @@ const Reports = () => {
   const [appsLoading, setAppsLoading] = useState(false);
   const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
 
-  const email = (() => {
+  const email = user?.email || (() => {
     try { return JSON.parse(localStorage.getItem("user") || "{}").email || ""; } catch { return ""; }
   })();
 

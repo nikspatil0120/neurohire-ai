@@ -5,8 +5,10 @@ import GlassCard from "@/components/GlassCard";
 import {
   LayoutDashboard, FilePlus, Database, Trophy, MessageCircle, LogOut,
   Briefcase, Users, User, Globe, FileText, Edit, Trash2, X, Check, BarChart2,
+  FolderKanban, CheckCircle2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 
 const API = "http://localhost:8000/api/v1";
 
@@ -47,6 +49,7 @@ const RecruiterDashboard = () => {
   const { toast } = useToast();
 
   const [jobs, setJobs] = useState<Job[]>([]);
+  const { user } = useAuth();
   const [appCounts, setAppCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
 
@@ -55,6 +58,7 @@ const RecruiterDashboard = () => {
   const [selectedDeleteTypes, setSelectedDeleteTypes] = useState<string[]>([]);
 
   const getRecruiterEmail = () => {
+    if (user?.email) return user.email;
     try { return JSON.parse(localStorage.getItem("user") || "{}").email || ""; }
     catch { return ""; }
   };
@@ -94,7 +98,7 @@ const RecruiterDashboard = () => {
     }
   };
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(); }, [user?.email]);
 
   const activeJobsCount = jobs.filter(
     (j) => j.status === "published" && j.is_active && !isExpired(j)
@@ -152,12 +156,19 @@ const RecruiterDashboard = () => {
       <div className="space-y-8">
 
         {/* ── Stats cards ── */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-xl">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-w-3xl">
           {[
-            { label: "Active Jobs",      value: loading ? "..." : activeJobsCount.toString(),  icon: Briefcase, color: "text-primary" },
-            { label: "Total Candidates", value: loading ? "..." : totalCandidates.toString(),  icon: Users,     color: "text-secondary" },
+            { label: "Jobs Created",     value: loading ? "..." : jobs.length.toString(),      icon: FolderKanban, color: "text-blue-500",   href: "/recruiter/jobs-created" },
+            { label: "Active Jobs",      value: loading ? "..." : activeJobsCount.toString(),  icon: Briefcase,    color: "text-primary",    href: "/recruiter/jobs-created?filter=active" },
+            { label: "Total Candidates", value: loading ? "..." : totalCandidates.toString(),  icon: Users,        color: "text-secondary",  href: "/recruiter/applicants" },
           ].map((s) => (
-            <GlassCard key={s.label} variant="neon">
+            <GlassCard
+              key={s.label}
+              variant="neon"
+              hover
+              onClick={() => s.href && navigate(s.href)}
+              className="cursor-pointer"
+            >
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-muted-foreground uppercase tracking-wider">{s.label}</p>

@@ -8,6 +8,7 @@ import {
   AlertCircle, RefreshCw, Eye, X,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 
 const API = "http://localhost:8000/api/v1";
 
@@ -75,17 +76,20 @@ const Applicants = () => {
   const [updatingStatus,setUpdatingStatus]= useState(false);
 
   // Filters
+  const { user } = useAuth();
   const [searchQuery,   setSearchQuery]   = useState("");
   const [filterJob,     setFilterJob]     = useState("all");
   const [filterStatus,  setFilterStatus]  = useState("all");
   const [jobOptions,    setJobOptions]    = useState<{ id: string; title: string }[]>([]);
 
-  // ── Load ─────────────────────────────────────────────────────────────────────
-  useEffect(() => { loadApplications(); }, []);
-
   const getRecruiterEmail = () => {
-    try { return JSON.parse(localStorage.getItem("user") || "{}").email || ""; } catch { return ""; }
+    return user?.email || (() => {
+      try { return JSON.parse(localStorage.getItem("user") || "{}").email || ""; } catch { return ""; }
+    })();
   };
+
+  // ── Load ─────────────────────────────────────────────────────────────────────
+  useEffect(() => { loadApplications(); }, [user?.email]);
 
   const loadApplications = async () => {
     const email = getRecruiterEmail();
