@@ -195,7 +195,7 @@ const Index = () => {
                   {/* Subtle search radar badge */}
                   <div className="absolute top-4 left-4 px-3 py-1.5 rounded-full bg-background/80 backdrop-blur-md border border-border/60 text-xs font-semibold flex items-center gap-2 text-foreground">
                     <Search className="w-3.5 h-3.5 text-primary animate-pulse" />
-                    
+
                   </div>
                 </div>
 
@@ -205,7 +205,7 @@ const Index = () => {
                   transition={{ delay: 0.4 }}
                   className="mt-5 text-sm sm:text-base font-medium text-muted-foreground tracking-wide text-center"
                 >
-                  
+
                 </motion.p>
               </motion.div>
             )}

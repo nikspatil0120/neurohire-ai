@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import GlassCard from "@/components/GlassCard";
 import {
@@ -75,12 +76,33 @@ const Applicants = () => {
   const [showDetail,    setShowDetail]    = useState(false);
   const [updatingStatus,setUpdatingStatus]= useState(false);
 
-  // Filters
+  // Filters & URL search params
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialJobId = searchParams.get("jobId") || "all";
+
   const [searchQuery,   setSearchQuery]   = useState("");
-  const [filterJob,     setFilterJob]     = useState("all");
+  const [filterJob,     setFilterJob]     = useState(initialJobId);
   const [filterStatus,  setFilterStatus]  = useState("all");
   const [jobOptions,    setJobOptions]    = useState<{ id: string; title: string }[]>([]);
+
+  // Sync state if URL query param changes
+  useEffect(() => {
+    const jobIdParam = searchParams.get("jobId");
+    setFilterJob(jobIdParam || "all");
+  }, [searchParams]);
+
+  const handleJobChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newJobId = e.target.value;
+    setFilterJob(newJobId);
+    const nextParams = new URLSearchParams(searchParams);
+    if (newJobId === "all") {
+      nextParams.delete("jobId");
+    } else {
+      nextParams.set("jobId", newJobId);
+    }
+    setSearchParams(nextParams, { replace: true });
+  };
 
   const getRecruiterEmail = () => {
     return user?.email || (() => {
@@ -96,16 +118,29 @@ const Applicants = () => {
     if (!email) return;
     setIsLoading(true);
     try {
-      const res = await fetch(`${API}/applications/recruiter/${encodeURIComponent(email)}`);
-      if (!res.ok) throw new Error("Failed to load applications");
-      const data = await res.json();
+      const [appsRes, jobsRes] = await Promise.all([
+        fetch(`${API}/applications/recruiter/${encodeURIComponent(email)}`),
+        fetch(`${API}/jobs/recruiter/${encodeURIComponent(email)}`),
+      ]);
+      if (!appsRes.ok) throw new Error("Failed to load applications");
+      const data = await appsRes.json();
       const apps: Application[] = data.applications || [];
       setApplications(apps);
-      setFiltered(apps);
 
-      // Build unique job options for filter
+      let jobsList: { _id: string; title: string }[] = [];
+      if (jobsRes.ok) {
+        const jd = await jobsRes.json();
+        jobsList = jd.jobs || [];
+      }
+
+      // Build unique job options for filter from both jobs list and applications
       const seen = new Map<string, string>();
-      for (const a of apps) { if (!seen.has(a.job_id)) seen.set(a.job_id, a.job_title); }
+      for (const j of jobsList) {
+        seen.set(j._id, j.title);
+      }
+      for (const a of apps) {
+        if (!seen.has(a.job_id)) seen.set(a.job_id, a.job_title);
+      }
       setJobOptions(Array.from(seen.entries()).map(([id, title]) => ({ id, title })));
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -153,12 +188,13 @@ const Applicants = () => {
     }
   };
 
-  // ── Stats ─────────────────────────────────────────────────────────────────────
+  // ── Stats (Scoped to selected role if filtered) ───────────────────────────────
+  const relevantApps = filterJob === "all" ? applications : applications.filter(a => a.job_id === filterJob);
   const stats = {
-    total:    applications.length,
-    applied:  applications.filter(a => a.application_status === "applied").length,
-    selected: applications.filter(a => a.application_status === "selected").length,
-    rejected: applications.filter(a => a.application_status === "rejected").length,
+    total:    relevantApps.length,
+    applied:  relevantApps.filter(a => a.application_status === "applied").length,
+    selected: relevantApps.filter(a => a.application_status === "selected").length,
+    rejected: relevantApps.filter(a => a.application_status === "rejected").length,
   };
 
   if (isLoading) {
@@ -204,7 +240,7 @@ const Applicants = () => {
             {/* Job filter */}
             <div className="relative">
               <BriefcaseIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <select value={filterJob} onChange={e => setFilterJob(e.target.value)}
+              <select value={filterJob} onChange={handleJobChange}
                 className="pl-9 pr-8 py-2.5 rounded-lg bg-muted/30 border border-border/50 text-foreground text-sm focus:outline-none focus:border-primary/50 appearance-none cursor-pointer min-w-[160px]">
                 <option value="all">All Jobs</option>
                 {jobOptions.map(j => <option key={j.id} value={j.id}>{j.title}</option>)}
@@ -229,19 +265,74 @@ const Applicants = () => {
           </div>
         </GlassCard>
 
+        {/* ── Active Role Filter Banner ── */}
+        {filterJob !== "all" && (
+          <div className="flex items-center justify-between p-3.5 rounded-xl bg-primary/10 border border-primary/30 text-xs text-foreground animate-in fade-in-0">
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg bg-primary/20 flex items-center justify-center text-primary">
+                <BriefcaseIcon className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="font-semibold text-foreground text-sm">
+                  {jobOptions.find((j) => j.id === filterJob)?.title || "Selected Role"}
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  Showing {filtered.length} candidate{filtered.length === 1 ? "" : "s"} specifically for this position
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setFilterJob("all");
+                const next = new URLSearchParams(searchParams);
+                next.delete("jobId");
+                setSearchParams(next, { replace: true });
+              }}
+              className="px-3 py-1.5 rounded-lg bg-primary/15 hover:bg-primary/25 text-primary text-xs font-semibold transition-colors flex items-center gap-1.5 border border-primary/20"
+            >
+              <X className="w-3.5 h-3.5" />
+              Show All Roles ({applications.length})
+            </button>
+          </div>
+        )}
+
         {/* ── Table ── */}
         {filtered.length === 0 ? (
           <GlassCard variant="neon" hover={false}>
             <div className="text-center py-12">
               <Users className="w-16 h-16 mx-auto mb-4 text-muted-foreground opacity-40" />
               <h3 className="text-lg font-semibold text-foreground mb-2">
-                {applications.length === 0 ? "No Applicants Yet" : "No Matching Results"}
+                {filterJob !== "all"
+                  ? "No Applicants for this Job Yet"
+                  : applications.length === 0
+                  ? "No Applicants Yet"
+                  : "No Matching Results"}
               </h3>
-              <p className="text-muted-foreground text-sm">
-                {applications.length === 0 ? "Candidates who apply to your jobs will appear here." : "Try adjusting your search or filters."}
+              <p className="text-muted-foreground text-sm max-w-md mx-auto">
+                {filterJob !== "all"
+                  ? "No candidates have applied specifically for this role yet. You can clear the filter to see candidates for other roles."
+                  : applications.length === 0
+                  ? "Candidates who apply to your jobs will appear here."
+                  : "Try adjusting your search or filters."}
               </p>
+              {filterJob !== "all" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilterJob("all");
+                    const next = new URLSearchParams(searchParams);
+                    next.delete("jobId");
+                    setSearchParams(next, { replace: true });
+                  }}
+                  className="mt-4 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-all inline-flex items-center gap-1.5"
+                >
+                  View All Candidates ({applications.length})
+                </button>
+              )}
             </div>
           </GlassCard>
+
         ) : (
           <GlassCard variant="neon" hover={false}>
             <div className="overflow-x-auto">
