@@ -1,7 +1,7 @@
 import { ReactNode, useState, useRef, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { LucideIcon, CheckCircle, RefreshCw, Settings, Maximize2, Minimize2 } from "lucide-react";
+import { LucideIcon, CheckCircle, RefreshCw, Settings, Maximize2, Minimize2, Sun, Moon } from "lucide-react";
 import UserProfile from "@/components/UserProfile";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -29,8 +29,36 @@ const DashboardLayout = ({ children, navItems, title, solvedCount = 0, totalProb
   const [backgroundTheme, setBackgroundTheme] = useState<"normal" | "ruled">("normal");
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Theme state (Light by default, persisted in localStorage upon user choice)
+  const [isDark, setIsDark] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("neurohire-theme");
+      if (saved) return saved === "dark";
+      return document.documentElement.classList.contains("dark");
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    if (isDark) {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  }, [isDark]);
+
+  const toggleTheme = () => {
+    const next = !isDark;
+    setIsDark(next);
+    localStorage.setItem("neurohire-theme", next ? "dark" : "light");
+    if (next) {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  };
+
   const handleRefresh = () => {
-    console.log('Refresh clicked in DashboardLayout');
     window.location.reload();
   };
 
@@ -74,11 +102,15 @@ const DashboardLayout = ({ children, navItems, title, solvedCount = 0, totalProb
       {/* Sidebar */}
       <aside className="w-64 border-r border-border/30 bg-sidebar flex flex-col">
         <div className="p-6 border-b border-border/30">
-          <Link to="/" className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-sm">N</span>
-            </div>
-            <span className="font-display text-sm tracking-wider text-foreground">NEUROHIRE</span>
+          <Link to="/" className="flex items-center gap-2.5 group">
+            <img
+              src="/neurohire-symbol.png"
+              alt="NeuroHire AI Symbol"
+              className="w-8 h-8 object-contain transition-transform group-hover:scale-105 drop-shadow-[0_0_8px_hsl(var(--primary)/0.3)]"
+            />
+            <span className="font-display text-sm tracking-wider text-foreground font-bold">
+              NEUROHIRE <span className="text-primary text-xs font-semibold">AI</span>
+            </span>
           </Link>
         </div>
 
@@ -143,72 +175,118 @@ const DashboardLayout = ({ children, navItems, title, solvedCount = 0, totalProb
       <main className="flex-1 overflow-auto">
         <header className="border-b border-border/30 px-8 py-4 flex items-center justify-between">
           <h1 className="text-xl font-display tracking-wider text-foreground">{title}</h1>
-          <div className="flex items-center gap-3">
-            {/* Debug test button */}
+          <div className="flex items-center gap-2.5">
+            {/* Theme Toggle (Light / Dark) */}
             <button
-              onClick={() => {
-                console.log('DEBUG: Test button clicked!');
-                alert('Button click is working!');
-              }}
-              className="px-3 py-1 bg-red-500 text-white rounded-lg text-sm font-bold"
+              type="button"
+              onClick={toggleTheme}
+              className="p-2 rounded-lg border border-border/60 hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-all cursor-pointer shadow-sm"
+              title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
             >
-              TEST
+              {isDark ? (
+                <Sun className="w-4 h-4 text-amber-400" />
+              ) : (
+                <Moon className="w-4 h-4 text-indigo-600" />
+              )}
             </button>
-            {/* Corner buttons */}
-            <div className="flex items-center gap-2 relative z-50">
-              <button
-                onClick={() => {
-                  console.log('Settings button clicked');
-                  setShowSettings(!showSettings);
-                }}
-                className="p-2 rounded-lg bg-blue-500 hover:bg-blue-600 text-white transition-colors cursor-pointer"
-                title="Settings"
-              >
-                <Settings className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => {
-                  console.log('Fullscreen button clicked, current state:', isFullscreen);
-                  handleFullscreen();
-                }}
-                className="p-2 rounded-lg bg-green-500 hover:bg-green-600 text-white transition-colors cursor-pointer"
-                title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
-              >
-                {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-              </button>
-            </div>
+
+            {/* Fullscreen button */}
+            <button
+              type="button"
+              onClick={handleFullscreen}
+              className="p-2 rounded-lg border border-border/60 hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-all cursor-pointer shadow-sm"
+              title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+            >
+              {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            </button>
+
+            {/* Settings button */}
+            <button
+              type="button"
+              onClick={() => setShowSettings(!showSettings)}
+              className={cn(
+                "p-2 rounded-lg border border-border/60 hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-all cursor-pointer shadow-sm",
+                showSettings && "bg-primary/10 border-primary/40 text-primary"
+              )}
+              title="Display Settings"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+
+            <div className="h-6 w-px bg-border/40 mx-1" />
+
             <UserProfile />
           </div>
         </header>
 
         {/* Settings Panel */}
         {showSettings && (
-          <div className="px-8 py-4 border-b border-border/30">
-            <div className="max-w-md">
-              <h3 className="text-sm font-semibold text-foreground mb-3">Background Settings</h3>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setBackgroundTheme("normal")}
-                  className={cn(
-                    "flex-1 px-4 py-2 rounded-lg text-sm transition-colors",
-                    backgroundTheme === "normal"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted/30 text-muted-foreground hover:bg-muted/50"
-                  )}
-                >
-                  Normal
-                </button>
-                <button
-                  onClick={() => setBackgroundTheme("ruled")}
-                  className={cn(
-                    "flex-1 px-4 py-2 rounded-lg text-sm transition-colors",
-                    backgroundTheme === "ruled"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted/30 text-muted-foreground hover:bg-muted/50"
-                  )}
-                >
-                  Ruled Lines
-                </button>
+          <div className="px-8 py-4 border-b border-border/40 bg-card/40 backdrop-blur-md">
+            <div className="max-w-xl grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Color Theme</h3>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!isDark) toggleTheme();
+                    }}
+                    className={cn(
+                      "flex-1 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all flex items-center justify-center gap-1.5",
+                      isDark
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "border-border/60 text-muted-foreground hover:bg-muted/40"
+                    )}
+                  >
+                    <Moon className="w-3.5 h-3.5" />
+                    Dark Mode
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isDark) toggleTheme();
+                    }}
+                    className={cn(
+                      "flex-1 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all flex items-center justify-center gap-1.5",
+                      !isDark
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "border-border/60 text-muted-foreground hover:bg-muted/40"
+                    )}
+                  >
+                    <Sun className="w-3.5 h-3.5" />
+                    Light Mode
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Background Pattern</h3>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setBackgroundTheme("normal")}
+                    className={cn(
+                      "flex-1 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all",
+                      backgroundTheme === "normal"
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "border-border/60 text-muted-foreground hover:bg-muted/40"
+                    )}
+                  >
+                    Clean Surface
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBackgroundTheme("ruled")}
+                    className={cn(
+                      "flex-1 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all",
+                      backgroundTheme === "ruled"
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "border-border/60 text-muted-foreground hover:bg-muted/40"
+                    )}
+                  >
+                    Grid Lines
+                  </button>
+                </div>
               </div>
             </div>
           </div>

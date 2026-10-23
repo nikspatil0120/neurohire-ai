@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import ParticleBackground from "@/components/ParticleBackground";
 import GlassCard from "@/components/GlassCard";
-import { Brain, Chrome, Eye, EyeOff, Mail, Lock, User } from "lucide-react";
+import { Chrome, Eye, EyeOff, Mail, Lock, User, Sun, Moon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { GoogleLogin } from '@react-oauth/google';
@@ -22,6 +22,35 @@ const Login = () => {
   const [error, setError] = useState("");
   const navigate = useNavigate();
   const { login, signup, loginWithGoogle, isLoading } = useAuth();
+
+  // Theme toggle state
+  const [isDark, setIsDark] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("neurohire-theme");
+      if (saved) return saved === "dark";
+      return document.documentElement.classList.contains("dark");
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    if (isDark) {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  }, [isDark]);
+
+  const toggleTheme = () => {
+    const next = !isDark;
+    setIsDark(next);
+    localStorage.setItem("neurohire-theme", next ? "dark" : "light");
+    if (next) {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  };
 
   // Show Admin role only in Sign In mode
   const availableRoles = isLogin ? roles : roles.filter(r => r !== "Admin");
@@ -77,41 +106,58 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background flex">
+    <div className="min-h-screen bg-background flex relative selection:bg-primary/20 overflow-hidden">
       <ParticleBackground />
 
-      {/* Left side – animated brain */}
-      <div className="hidden lg:flex flex-1 items-center justify-center relative z-10">
-        <div className="relative">
-          <div className="w-80 h-80 rounded-full bg-gradient-to-br from-primary/10 to-secondary/10 flex items-center justify-center animate-fade-in">
-            <div className="w-60 h-60 rounded-full bg-gradient-to-br from-primary/15 to-secondary/15 flex items-center justify-center pulse-glow">
-              <Brain className="w-24 h-24 text-primary neon-glow" />
+      {/* Floating Theme Toggle in top-right */}
+      <div className="absolute top-6 right-6 z-30 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={toggleTheme}
+          className="p-2.5 rounded-xl border border-border/70 bg-card/70 hover:bg-muted/60 text-muted-foreground hover:text-foreground backdrop-blur-md transition-all cursor-pointer shadow-sm"
+          title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
+        >
+          {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-600" />}
+        </button>
+      </div>
+
+      {/* Left side – Clean Hero Showcase with Candidate Illustration */}
+      <div className="hidden lg:flex flex-1 items-center justify-center p-10 relative z-10">
+        <div className="relative w-full max-w-lg flex flex-col items-center">
+          {/* Ambient Glow */}
+          <div className="absolute -inset-6 bg-gradient-to-tr from-primary/25 via-secondary/15 to-transparent blur-3xl rounded-3xl -z-10" />
+
+          {/* Main Illustration Glass Container */}
+          <div className="w-full rounded-3xl border border-border/80 shadow-2xl bg-card/60 backdrop-blur-2xl p-6 relative overflow-hidden animate-fade-in">
+            {/* Candidate Image Container */}
+            <div className="relative rounded-2xl overflow-hidden bg-gradient-to-b from-primary/5 via-card/50 to-background/80 p-6 flex items-center justify-center border border-border/50">
+              <img
+                src="/candidate-laptop.png"
+                alt="Candidate on laptop"
+                className="w-full max-w-[340px] h-auto object-contain drop-shadow-xl hover:scale-[1.02] transition-transform duration-500"
+              />
+            </div>
+
+            {/* Simple Clean Headline Below */}
+            <div className="mt-6 text-center">
+              <h3 className="font-display text-lg sm:text-xl font-bold text-foreground tracking-wide">
+                Sign In, Sign Up & Get Started
+              </h3>
             </div>
           </div>
-          {/* Neural connections */}
-          {[...Array(8)].map((_, i) => (
-            <div
-              key={i}
-              className="absolute w-1 h-1 rounded-full bg-primary/60"
-              style={{
-                top: `${50 + Math.sin(i * 0.785) * 45}%`,
-                left: `${50 + Math.cos(i * 0.785) * 45}%`,
-                animation: `float ${2 + i * 0.3}s ease-in-out infinite`,
-                animationDelay: `${i * 0.2}s`,
-              }}
-            />
-          ))}
         </div>
       </div>
 
       {/* Right side – auth form */}
-      <div className="flex-1 flex items-center justify-center p-8 relative z-10">
+      <div className="flex-1 flex items-center justify-center p-6 sm:p-10 relative z-10">
         <div className="w-full max-w-md animate-fade-in-up">
-          <Link to="/" className="flex items-center gap-2 mb-10">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-sm">N</span>
-            </div>
-            <span className="font-display text-sm tracking-widest neon-glow">NEUROHIRE AI</span>
+          <Link to="/" className="flex items-center gap-3 mb-8 group">
+            <img
+              src="/neurohire-symbol.png"
+              alt="NeuroHire AI Symbol"
+              className="w-9 h-9 object-contain transition-transform group-hover:scale-110 drop-shadow-[0_0_12px_hsl(var(--primary)/0.35)]"
+            />
+            <span className="font-display text-base tracking-widest text-foreground font-bold">NEUROHIRE AI</span>
           </Link>
 
           <GlassCard variant="neon" hover={false} className="p-8">

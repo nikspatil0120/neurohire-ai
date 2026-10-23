@@ -23,7 +23,7 @@ const GlassCard = ({ children, className, variant = "default", hover = true, sty
       className={cn(
         variants[variant],
         "p-6 transition-all duration-300",
-        hover && "hover:scale-[1.02] hover:shadow-[0_0_30px_hsl(185_100%_50%/0.15)]",
+        hover && "hover:scale-[1.01] hover:shadow-lg hover:shadow-primary/10 hover:border-primary/40",
         onClick && "cursor-pointer",
         className
       )}

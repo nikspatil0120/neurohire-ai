@@ -7,9 +7,12 @@ Endpoints:
   POST /interview-ai/final-score         — produce final interview score (Gemini x3)
 """
 
+# pyrefly: ignore[missing-import]
 from fastapi import APIRouter, HTTPException
+# pyrefly: ignore[missing-import]
 from pydantic import BaseModel
 from typing import List, Optional, Any
+# pyrefly: ignore[missing-import]
 import httpx
 import json
 import asyncio
@@ -23,7 +26,7 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants (mirrors the reference JS logic)
 # ─────────────────────────────────────────────────────────────────────────────
-GEMINI_MODEL          = "gemini-3.6-flash"
+GEMINI_MODEL          = "gemini-3.7-flash"
 GROQ_MODEL            = "openai/gpt-oss-120b"
 NUM_MAIN_QUESTIONS    = 3
 NUM_RAPPORT_QUESTIONS = 2
@@ -237,26 +240,35 @@ def _pstdev(values: List[float]) -> float:
 
 async def _call_gemini(prompt: str) -> str:
     key = settings.GEMINI_API_KEY.strip()
-    if not key:
-        raise HTTPException(status_code=503, detail="GEMINI_API_KEY not configured")
-    url = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{GEMINI_MODEL}:generateContent?key={key}"
-    )
-    payload = {"contents": [{"parts": [{"text": prompt}]}]}
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        resp = await client.post(url, json=payload)
-        data = resp.json()
-        if not resp.is_success:
-            raise HTTPException(
-                status_code=502,
-                detail=f"Gemini error: {data.get('error', {}).get('message', resp.status_code)}"
-            )
-        parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-        text = "".join(p.get("text", "") for p in parts)
-        if not text.strip():
-            raise HTTPException(status_code=502, detail="Empty response from Gemini")
-        return text
+    groq_key = settings.GROQ_API_KEY.strip()
+    if not key and not groq_key:
+        raise HTTPException(status_code=503, detail="GEMINI_API_KEY or GROQ_API_KEY not configured")
+
+    if key:
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{GEMINI_MODEL}:generateContent?key={key}"
+        )
+        payload = {"contents": [{"parts": [{"text": prompt}]}]}
+        try:
+            async with httpx.AsyncClient(timeout=25.0) as client:
+                resp = await client.post(url, json=payload)
+                if resp.is_success:
+                    data = resp.json()
+                    parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+                    text = "".join(p.get("text", "") for p in parts)
+                    if text.strip():
+                        return text
+                logger.warning(f"Gemini returned {resp.status_code}, falling back to Groq...")
+        except Exception as e:
+            logger.warning(f"Gemini request exception ({e}), falling back to Groq...")
+
+    if groq_key:
+        return await _call_groq(
+            system_prompt="You are an expert technical interviewer assistant. Return only the requested JSON output strictly conforming to the prompt format.",
+            user_prompt=prompt
+        )
+    raise HTTPException(status_code=502, detail="Both Gemini and Groq calls failed")
 
 
 async def _call_groq(system_prompt: str, user_prompt: str) -> str:
@@ -300,6 +312,7 @@ async def _call_with_retries(fn, retries: int = 2):
             last_err = e
             if attempt < retries:
                 await asyncio.sleep(1.0)
+    # pyrefly: ignore[bad-raise]
     raise last_err
 
 # ─────────────────────────────────────────────────────────────────────────────

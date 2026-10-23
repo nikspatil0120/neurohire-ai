@@ -116,14 +116,18 @@ const LoginWithGoogle = () => {
         <div className="relative">
           <div className="w-80 h-80 rounded-full bg-blue-500/10 flex items-center justify-center">
             <div className="w-60 h-60 rounded-full bg-blue-500/20 flex items-center justify-center">
-              <Brain className="w-24 h-24 text-blue-400" />
+              <img
+                src="/neurohire-symbol.png"
+                alt="NeuroHire AI Symbol"
+                className="w-32 h-32 object-contain drop-shadow-[0_0_25px_rgba(59,130,246,0.6)]"
+              />
             </div>
           </div>
           {/* Neural connections */}
           {[...Array(8)].map((_, i) => (
             <div
               key={i}
-              className="absolute w-1 h-1 rounded-full bg-blue-400/60 animate-pulse"
+              className="absolute w-1.5 h-1.5 rounded-full bg-blue-400/70 animate-pulse shadow-[0_0_8px_rgba(96,165,250,0.8)]"
               style={{
                 top: `${50 + Math.sin(i * 0.785) * 45}%`,
                 left: `${50 + Math.cos(i * 0.785) * 45}%`,
@@ -137,11 +141,13 @@ const LoginWithGoogle = () => {
       {/* Right side – auth form */}
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="w-full max-w-md">
-          <Link to="/" className="flex items-center gap-2 mb-10">
-            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
-              <span className="text-white font-bold text-sm">N</span>
-            </div>
-            <span className="text-white text-sm tracking-widest">NEUROHIRE AI</span>
+          <Link to="/" className="flex items-center gap-3 mb-10 group">
+            <img
+              src="/neurohire-symbol.png"
+              alt="NeuroHire AI Symbol"
+              className="w-9 h-9 object-contain transition-transform group-hover:scale-110 drop-shadow-[0_0_12px_rgba(59,130,246,0.4)]"
+            />
+            <span className="text-white text-sm tracking-widest font-bold">NEUROHIRE AI</span>
           </Link>
 
           <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg p-8">
