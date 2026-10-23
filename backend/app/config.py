@@ -16,8 +16,8 @@ class Settings(BaseSettings):
     
     # Database
     POSTGRES_URL: str = "postgresql://postgres:password@localhost:5432/neurohire"
-    MONGODB_URL: str = "mongodb://127.0.0.1:27017"
-    MONGODB_DB: str = "neurohire"
+    MONGODB_URL: str = "mongodb+srv://sahilghogaressg06_db_user:r229cEXXqqs4LNTq@cluster0.wox3xqs.mongodb.net/neurohire_ai?appName=Cluster0"
+    MONGODB_DB: str = "neurohire_ai"
     REDIS_URL: str = "redis://127.0.0.1:6379"
     
     # CORS - will be parsed from .env

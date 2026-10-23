@@ -41,6 +41,11 @@ import DSAProblems from "./pages/admin/DSAProblems";
 import AptitudeQuestions from "./pages/admin/AptitudeQuestions";
 import Recruiters from "./pages/admin/Recruiters";
 import Candidates from "./pages/admin/Candidates";
+import IncomingJobs from "./pages/admin/IncomingJobs";
+import AdminApplications from "./pages/admin/Applications";
+import AIPerformance from "./pages/admin/AIPerformance";
+import AuditLogs from "./pages/admin/AuditLogs";
+import DataExport from "./pages/admin/DataExport";
 
 const queryClient = new QueryClient();
 
@@ -86,6 +91,11 @@ const App = () => (
                 <Route path="/admin/candidates" element={<Candidates />} />
                 <Route path="/admin/dsa-problems" element={<DSAProblems />} />
                 <Route path="/admin/aptitude-questions" element={<AptitudeQuestions />} />
+                <Route path="/admin/incoming-jobs" element={<IncomingJobs />} />
+                <Route path="/admin/applications" element={<AdminApplications />} />
+                <Route path="/admin/ai-performance" element={<AIPerformance />} />
+                <Route path="/admin/audit-logs" element={<AuditLogs />} />
+                <Route path="/admin/data-export" element={<DataExport />} />
 
                 <Route path="*" element={<NotFound />} />
               </Routes>

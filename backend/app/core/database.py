@@ -70,16 +70,8 @@ async def init_db():
                 questions_collection = mongo_db["questions"]
                 problems_collection = mongo_db["problems"]
                 
-                # Update the global variables in this module
-                import sys
-                current_module = sys.modules[__name__]
-                current_module.users_collection = users_collection
-                current_module.interviews_collection = interviews_collection
-                current_module.jobs_collection = jobs_collection
-                current_module.questions_collection = questions_collection
-                current_module.problems_collection = problems_collection
-                
                 logger.info("MongoDB connected successfully")
+                logger.info(f"Database state after init: mongo_db = {mongo_db is not None}")
             except Exception as mongo_error:
                 logger.error(f"MongoDB connection failed: {type(mongo_error).__name__}: {mongo_error}")
                 raise
@@ -134,7 +126,10 @@ async def get_db():
 
 def get_mongo_db():
     """Get MongoDB database"""
-    logger.info(f"get_mongo_db called, mongo_db is: {mongo_db is not None}")
+    global mongo_db
+    if mongo_db is None:
+        logger.warning("MongoDB database not initialized. Attempting to reinitialize...")
+        # This shouldn't happen in normal operation, but we log it for debugging
     return mongo_db
 
 def get_redis():
