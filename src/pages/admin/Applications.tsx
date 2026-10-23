@@ -2,26 +2,14 @@ import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import GlassCard from "@/components/GlassCard";
+import { ADMIN_NAV_ITEMS } from "@/constants/adminNavItems";
 import {
-  LayoutDashboard, Shield, Users, Building2, Brain, Code, BookOpen, Briefcase,
   Search, Filter, ChevronDown, Clock, Calendar, RefreshCw, Eye, X,
-  CheckCircle, XCircle, AlertCircle, Mail,
+  CheckCircle, XCircle, AlertCircle, Mail, Building2, Briefcase, Users
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const API = "http://localhost:8000/api/v1";
-
-const navItems = [
-  { label: "Dashboard",          href: "/admin/dashboard",          icon: LayoutDashboard },
-  { label: "System Monitor",     href: "/admin/monitoring",         icon: Shield },
-  { label: "Recruiters",         href: "/admin/recruiters",         icon: Building2 },
-  { label: "Candidates",         href: "/admin/candidates",         icon: Users },
-  { label: "Incoming Jobs",      href: "/admin/incoming-jobs",      icon: Briefcase },
-  { label: "Applications",       href: "/admin/applications",       icon: Users },
-  { label: "DSA Problems",       href: "/admin/dsa-problems",       icon: Code },
-  { label: "Aptitude Questions", href: "/admin/aptitude-questions", icon: BookOpen },
-  { label: "AI Performance",     href: "/admin/ai-performance",     icon: Brain },
-];
 
 interface Application {
   _id: string;
@@ -112,6 +100,27 @@ const AdminApplications = () => {
     }
   };
 
+  // ── Export ────────────────────────────────────────────────────────────────────
+  const exportApplications = async () => {
+    try {
+      const response = await fetch(`${API}/admin/export/applications`);
+      if (!response.ok) throw new Error("Export failed");
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `applications_${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      
+      toast({ title: "Success", description: "Applications exported successfully" });
+    } catch (err: any) {
+      toast({ title: "Error", description: "Failed to export applications", variant: "destructive" });
+    }
+  };
+
   // ── Filter ────────────────────────────────────────────────────────────────────
   useEffect(() => {
     let r = [...applications];
@@ -128,6 +137,26 @@ const AdminApplications = () => {
     setFiltered(r);
   }, [searchQuery, filterJobId, filterRecruiter, filterStatus, applications]);
 
+  // ── Update Status ─────────────────────────────────────────────────────────────
+  const updateApplicationStatus = async (appId: string, newStatus: string) => {
+    try {
+      const response = await fetch(`${API}/admin/applications/${appId}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus })
+      });
+      
+      if (response.ok) {
+        toast({ title: "Success", description: "Application status updated" });
+        loadApplications();
+      } else {
+        throw new Error("Failed to update status");
+      }
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  };
+
   // ── Stats ─────────────────────────────────────────────────────────────────────
   const stats = {
     total:    applications.length,
@@ -138,7 +167,7 @@ const AdminApplications = () => {
 
   if (isLoading) {
     return (
-      <DashboardLayout navItems={navItems} title="ALL APPLICATIONS">
+      <DashboardLayout navItems={ADMIN_NAV_ITEMS} title="ALL APPLICATIONS">
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />
         </div>
@@ -147,7 +176,7 @@ const AdminApplications = () => {
   }
 
   return (
-    <DashboardLayout navItems={navItems} title="ALL APPLICATIONS">
+    <DashboardLayout navItems={ADMIN_NAV_ITEMS} title="ALL APPLICATIONS">
       <div className="space-y-6">
 
         {/* Stats */}
@@ -213,6 +242,11 @@ const AdminApplications = () => {
               className="px-4 py-2.5 rounded-lg bg-muted/30 border border-border/50 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all flex items-center gap-2 text-sm">
               <RefreshCw className="w-4 h-4" />Refresh
             </button>
+
+            <button onClick={() => exportApplications()}
+              className="px-4 py-2.5 rounded-lg bg-green-500/20 border border-green-500/40 text-green-400 hover:bg-green-500/30 transition-all flex items-center gap-2 text-sm">
+              📥 Export CSV
+            </button>
           </div>
         </GlassCard>
 
@@ -235,7 +269,7 @@ const AdminApplications = () => {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border/30">
-                    {["Candidate","Job","Recruiter","Selected Slot","Applied","Status",""].map((h, i) => (
+                    {["Candidate","Job","Recruiter","Selected Slot","Applied","Status","Actions"].map((h, i) => (
                       <th key={i} className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">{h}</th>
                     ))}
                   </tr>
@@ -288,12 +322,28 @@ const AdminApplications = () => {
                       {/* Status */}
                       <td className="px-4 py-3"><StatusBadge status={app.application_status} /></td>
 
-                      {/* Detail */}
+                      {/* Detail & Admin Actions */}
                       <td className="px-4 py-3">
-                        <button onClick={() => { setSelectedApp(app); setShowDetail(true); }}
-                          className="p-1.5 rounded-lg bg-primary/20 text-primary hover:bg-primary/30 transition-all">
-                          <Eye className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => { setSelectedApp(app); setShowDetail(true); }}
+                            className="p-1.5 rounded-lg bg-primary/20 text-primary hover:bg-primary/30 transition-all"
+                            title="View details">
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <select
+                            value={app.application_status}
+                            onChange={(e) => updateApplicationStatus(app._id, e.target.value)}
+                            className="px-2 py-1 text-xs bg-muted/30 border border-border/50 rounded text-foreground focus:outline-none focus:border-primary/50 cursor-pointer"
+                            title="Update status">
+                            <option value="applied">Applied</option>
+                            <option value="test_pending">Test Pending</option>
+                            <option value="test_started">Test Started</option>
+                            <option value="test_completed">Test Completed</option>
+                            <option value="interview_pending">Interview Pending</option>
+                            <option value="selected">Selected</option>
+                            <option value="rejected">Rejected</option>
+                          </select>
+                        </div>
                       </td>
                     </tr>
                   ))}

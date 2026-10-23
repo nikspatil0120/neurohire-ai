@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import GlassCard from "@/components/GlassCard";
+import { ADMIN_NAV_ITEMS } from "@/constants/adminNavItems";
 import { 
-  LayoutDashboard, Shield, Users, Building2, Brain, Code, Plus, 
-  Edit, Trash2, Save, X, CheckCircle, XCircle, AlertCircle, Eye, EyeOff, Globe, Lock, Wand2, BookOpen
+  Plus, Edit, Trash2, Save, X, CheckCircle, XCircle, AlertCircle, Eye, EyeOff, Globe, Lock, Wand2, Code, Users
 } from "lucide-react";
 import { 
   getAllProblems, 
@@ -16,16 +16,6 @@ import {
   TestCase
 } from "@/lib/problemStore";
 import { generateBoilerplate, BoilerplateOptions } from "@/lib/boilerplateGenerator";
-
-const navItems = [
-  { label: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
-  { label: "System Monitor", href: "/admin/monitoring", icon: Shield },
-  { label: "Recruiters", href: "/admin/recruiters", icon: Building2 },
-  { label: "Candidates", href: "/admin/candidates", icon: Users },
-  { label: "DSA Problems", href: "/admin/dsa-problems", icon: Code },
-  { label: "Aptitude Questions", href: "/admin/aptitude-questions", icon: BookOpen },
-  { label: "AI Performance", href: "/admin/ai-performance", icon: Brain },
-];
 
 // Initial problem data (will be replaced by database data)
 const initialProblems: Problem[] = [];
@@ -384,7 +374,7 @@ const DSAProblems = () => {
   });
 
   return (
-    <DashboardLayout navItems={navItems} title="DSA PROBLEMS MANAGEMENT">
+    <DashboardLayout navItems={ADMIN_NAV_ITEMS} title="DSA PROBLEMS MANAGEMENT">
       <div className="space-y-6">
         {/* Header with Add Button */}
         <div className="flex items-center justify-between">
@@ -405,43 +395,65 @@ const DSAProblems = () => {
           )}
         </div>
 
-        {/* Filter Tabs */}
-        {!isEditing && (
-          <div className="flex gap-2">
-            <button
-              onClick={() => setFilterStatus("all")}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                filterStatus === "all"
-                  ? "bg-primary/20 text-primary border border-primary/40"
-                  : "bg-muted/30 text-muted-foreground border border-transparent hover:border-border"
-              }`}
-            >
-              All Problems ({problems.length})
-            </button>
-            <button
-              onClick={() => setFilterStatus("published")}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
-                filterStatus === "published"
-                  ? "bg-green-500/20 text-green-400 border border-green-500/40"
-                  : "bg-muted/30 text-muted-foreground border border-transparent hover:border-border"
-              }`}
-            >
-              <Globe className="w-4 h-4" />
-              Published ({problems.filter(p => p.published).length})
-            </button>
-            <button
-              onClick={() => setFilterStatus("draft")}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
-                filterStatus === "draft"
-                  ? "bg-gray-500/20 text-gray-400 border border-gray-500/40"
-                  : "bg-muted/30 text-muted-foreground border border-transparent hover:border-border"
-              }`}
-            >
-              <Lock className="w-4 h-4" />
-              Draft ({problems.filter(p => !p.published).length})
-            </button>
+        {/* Stats Bar */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          {[
+            { label: "Total", value: problems.length, color: "text-primary" },
+            { label: "Published", value: problems.filter(p => p.published).length, color: "text-green-400" },
+            { label: "Draft", value: problems.filter(p => !p.published).length, color: "text-gray-400" },
+            { label: "Easy", value: problems.filter(p => p.difficulty === "Easy").length, color: "text-green-400" },
+            { label: "Medium", value: problems.filter(p => p.difficulty === "Medium").length, color: "text-yellow-400" },
+          ].map((s) => (
+            <GlassCard key={s.label} variant="neon" hover={false}>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">{s.label}</p>
+              <p className={`text-2xl font-bold mt-1 ${s.color}`}>{s.value}</p>
+            </GlassCard>
+          ))}
+        </div>
+
+        {/* Export Button */}
+        <GlassCard variant="neon" hover={false}>
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">Bulk Operations</h3>
+              <p className="text-xs text-muted-foreground mt-1">Export, import, or manage multiple problems</p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={async () => {
+                  try {
+                    const response = await fetch(`http://localhost:8000/api/v1/admin/export/problems`);
+                    if (!response.ok) throw new Error("Export failed");
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `problems_${new Date().toISOString().split('T')[0]}.csv`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                  } catch (err) {
+                    console.error('Export failed:', err);
+                  }
+                }}
+                className="px-4 py-2 bg-blue-500/20 text-blue-400 border border-blue-500/40 rounded-lg text-sm font-medium hover:bg-blue-500/30 transition-all"
+              >
+                📥 Export as CSV
+              </button>
+              <button
+                onClick={() => {
+                  const allPublished = problems.filter(p => !p.published).length > 0;
+                  if (allPublished && confirm(`Publish ${problems.filter(p => !p.published).length} draft problems?`)) {
+                    problems.filter(p => !p.published).forEach(p => togglePublish(p.id!));
+                  }
+                }}
+                className="px-4 py-2 bg-green-500/20 text-green-400 border border-green-500/40 rounded-lg text-sm font-medium hover:bg-green-500/30 transition-all"
+              >
+                🚀 Publish All Drafts
+              </button>
+            </div>
           </div>
-        )}
+        </GlassCard>
 
         {/* Edit/Add Form */}
         {isEditing && (
