@@ -25,11 +25,15 @@ import InterviewRoom from "./pages/candidate/InterviewRoom";
 import QuickStartInterview from "./pages/candidate/QuickStartInterview";
 import Interviews from "./pages/candidate/Interviews";
 import Report from "./pages/candidate/Report";
+import IncomingOpportunities from "./pages/candidate/IncomingOpportunities";
 
 // Recruiter
 import RecruiterDashboard from "./pages/recruiter/Dashboard";
 import RecruiterProfile from "./pages/recruiter/Profile";
 import CreateJob from "./pages/recruiter/CreateJob";
+import JobsCreated from "./pages/recruiter/JobsCreated";
+import Applicants from "./pages/recruiter/Applicants";
+import EditJob from "./pages/recruiter/EditJob";
 import QuestionDB from "./pages/recruiter/QuestionDB";
 import Rankings from "./pages/recruiter/Rankings";
 import Messaging from "./pages/recruiter/Messaging";
@@ -72,11 +76,15 @@ const App = () => (
                 <Route path="/candidate/quick-start-interview" element={<QuickStartInterview />} />
                 <Route path="/candidate/interviews" element={<Interviews />} />
                 <Route path="/candidate/reports" element={<Report />} />
+                <Route path="/candidate/incoming-opportunities" element={<IncomingOpportunities />} />
 
                 {/* Recruiter */}
                 <Route path="/recruiter/dashboard" element={<RecruiterDashboard />} />
                 <Route path="/recruiter/profile" element={<RecruiterProfile />} />
                 <Route path="/recruiter/create-job" element={<CreateJob />} />
+                <Route path="/recruiter/jobs-created" element={<JobsCreated />} />
+                <Route path="/recruiter/applicants" element={<Applicants />} />
+                <Route path="/recruiter/edit-job/:jobId" element={<EditJob />} />
                 <Route path="/recruiter/questions" element={<QuestionDB />} />
                 <Route path="/recruiter/rankings" element={<Rankings />} />
                 <Route path="/recruiter/messages" element={<Messaging />} />
