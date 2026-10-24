@@ -28,7 +28,6 @@ import Messaging from "./pages/recruiter/Messaging";
 
 // Admin
 import AdminDashboard from "./pages/admin/Dashboard";
-import SystemMonitoring from "./pages/admin/SystemMonitoring";
 
 const queryClient = new QueryClient();
 
@@ -63,7 +62,6 @@ const AppFixed = () => (
 
               {/* Admin */}
               <Route path="/admin/dashboard" element={<AdminDashboard />} />
-              <Route path="/admin/monitoring" element={<SystemMonitoring />} />
 
               <Route path="*" element={<NotFound />} />
             </Routes>

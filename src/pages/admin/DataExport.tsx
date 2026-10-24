@@ -4,7 +4,7 @@ import GlassCard from "@/components/GlassCard";
 import { ADMIN_NAV_ITEMS } from "@/constants/adminNavItems";
 import {
   Download, FileText, Users2, FileJson, CheckCircle, 
-  Clock, AlertCircle, RefreshCw, Building2, Code, Shield, Users
+  Clock, AlertCircle, RefreshCw, Building2, Code, Users
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -73,15 +73,6 @@ const DataExport = () => {
       endpoint: "/admin/export/problems",
       format: "csv",
       color: "from-indigo-500/20 to-blue-500/20",
-    },
-    {
-      id: "audit-logs",
-      title: "Audit Logs",
-      description: "Export admin activity logs for compliance and security audit",
-      icon: <Shield className="w-6 h-6" />,
-      endpoint: "/admin/audit-logs?format=csv",
-      format: "csv",
-      color: "from-yellow-500/20 to-orange-500/20",
     },
   ];
 

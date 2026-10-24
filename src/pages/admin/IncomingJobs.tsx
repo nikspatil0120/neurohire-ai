@@ -159,7 +159,7 @@ const IncomingJobs = () => {
   const closedJobs = jobs.filter(j => j.end_date && new Date(j.end_date) <= new Date()).length;
 
   return (
-    <DashboardLayout navItems={ADMIN_NAV_ITEMS} title="INCOMING JOBS">
+    <DashboardLayout navItems={ADMIN_NAV_ITEMS} title="JOBS">
       <div className="space-y-6">
         {/* Header Stats */}
         <div className="flex items-center justify-between">

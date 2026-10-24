@@ -1,8 +1,6 @@
 from fastapi import APIRouter, HTTPException, status
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
-import psutil
-import sys
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -44,8 +42,17 @@ async def get_admin_stats():
         pending_applications = await applications_coll.count_documents({
             "application_status": {"$in": ["applied", "test_pending"]}
         })
+        selected_applications = await applications_coll.count_documents({
+            "application_status": {"$in": ["selected", "offer_accepted", "hired"]}
+        })
         
-        # Abuse tracking (placeholder - can be enhanced later)
+        # Content bank metrics
+        problems_coll = mongo_db["problems"]
+        aptitude_coll = mongo_db["aptitude_questions"]
+        total_problems = await problems_coll.count_documents({})
+        total_aptitude_questions = await aptitude_coll.count_documents({})
+        
+        # Abuse tracking (placeholder)
         abuse_alerts = 0
         
         return {
@@ -57,7 +64,10 @@ async def get_admin_stats():
             "total_jobs": total_jobs,
             "published_jobs": published_jobs,
             "total_applications": total_applications,
-            "pending_applications": pending_applications
+            "pending_applications": pending_applications,
+            "selected_applications": selected_applications,
+            "total_problems": total_problems,
+            "total_aptitude_questions": total_aptitude_questions
         }
     except HTTPException:
         raise
@@ -106,44 +116,6 @@ async def get_problems_stats():
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error fetching problems stats: {str(e)}"
-        )
-
-@router.get("/system/health")
-async def get_system_health():
-    """Get system health metrics"""
-    try:
-        from ..core.database import get_mongo_db
-        
-        mongo_db = get_mongo_db()
-        
-        # Database status
-        db_status = "connected" if mongo_db is not None else "disconnected"
-        
-        # System metrics
-        cpu_percent = psutil.cpu_percent(interval=1)
-        memory = psutil.virtual_memory()
-        disk = psutil.disk_usage('/')
-        
-        return {
-            "status": "healthy" if db_status == "connected" else "degraded",
-            "database": {
-                "status": db_status,
-                "type": "MongoDB"
-            },
-            "system": {
-                "cpu_usage": f"{cpu_percent}%",
-                "memory_usage": f"{memory.percent}%",
-                "memory_available": f"{memory.available / (1024**3):.2f} GB",
-                "disk_usage": f"{disk.percent}%",
-                "disk_free": f"{disk.free / (1024**3):.2f} GB"
-            },
-            "python_version": sys.version.split()[0],
-            "timestamp": datetime.utcnow().isoformat()
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching system health: {str(e)}"
         )
 
 @router.get("/recent-activity")
@@ -542,86 +514,6 @@ async def export_applications():
             detail=f"Error exporting applications: {str(e)}"
         )
 
-@router.post("/audit-log")
-async def create_audit_log(action: str, resource_type: str, resource_id: Optional[str] = None, changes: Optional[Dict] = None):
-    """Create an admin audit log entry"""
-    try:
-        from ..core.database import get_mongo_db
-        
-        mongo_db = get_mongo_db()
-        
-        if mongo_db is None:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Database not available"
-            )
-        
-        audit_coll = mongo_db["admin_audit_logs"]
-        
-        log_entry = {
-            "action": action,
-            "resource_type": resource_type,
-            "resource_id": resource_id,
-            "changes": changes or {},
-            "timestamp": datetime.utcnow(),
-            "ip_address": None  # Can be populated from request context if needed
-        }
-        
-        result = await audit_coll.insert_one(log_entry)
-        
-        return {
-            "message": "Audit log created",
-            "log_id": str(result.inserted_id)
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error creating audit log: {str(e)}"
-        )
-
-@router.get("/audit-logs")
-async def get_audit_logs(limit: int = 100, skip: int = 0):
-    """Get admin audit logs"""
-    try:
-        from ..core.database import get_mongo_db
-        
-        mongo_db = get_mongo_db()
-        
-        if mongo_db is None:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Database not available"
-            )
-        
-        audit_coll = mongo_db["admin_audit_logs"]
-        
-        logs = await audit_coll.find().sort("timestamp", -1).skip(skip).limit(limit).to_list(limit)
-        total = await audit_coll.count_documents({})
-        
-        # Convert ObjectId to string for JSON serialization
-        for log in logs:
-            log["_id"] = str(log["_id"])
-            if isinstance(log.get("timestamp"), datetime):
-                log["timestamp"] = log["timestamp"].isoformat()
-        
-        return {
-            "logs": logs,
-            "total": total,
-            "skip": skip,
-            "limit": limit
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching audit logs: {str(e)}"
-        )
-
 @router.get("/applications")
 async def get_admin_applications(limit: int = 100, skip: int = 0, status_filter: Optional[str] = None):
     """Get applications with admin view"""
@@ -667,123 +559,3 @@ async def get_admin_applications(limit: int = 100, skip: int = 0, status_filter:
             detail=f"Error fetching applications: {str(e)}"
         )
 
-@router.get("/ai-performance")
-async def get_ai_performance():
-    """Get AI model performance metrics"""
-    try:
-        from ..core.database import get_mongo_db
-        
-        mongo_db = get_mongo_db()
-        
-        if mongo_db is None:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Database not available"
-            )
-        
-        interviews_coll = mongo_db["interviews"]
-        
-        # Get interview metrics
-        total_interviews = await interviews_coll.count_documents({})
-        
-        # Calculate average accuracy (from interview results if available)
-        accuracy_pipeline = [
-            {"$group": {
-                "_id": None,
-                "avg_accuracy": {"$avg": "$accuracy_score"}
-            }}
-        ]
-        accuracy_result = await interviews_coll.aggregate(accuracy_pipeline).to_list(1)
-        avg_accuracy = accuracy_result[0]["avg_accuracy"] if accuracy_result and accuracy_result[0]["avg_accuracy"] else 87.5
-        
-        # Calculate average response time (placeholder for now)
-        avg_response_time = 2.3
-        
-        # Get questions and answers stats
-        questions_coll = mongo_db["questions"]
-        problems_coll = mongo_db["problems"]
-        
-        questions_generated = await questions_coll.count_documents({})
-        problems_created = await problems_coll.count_documents({})
-        
-        # Model uptime (placeholder - would track from monitoring)
-        model_uptime = 99.8
-        
-        return {
-            "metrics": {
-                "total_interviews": total_interviews,
-                "avg_accuracy": round(avg_accuracy, 1),
-                "avg_response_time": avg_response_time,
-                "questions_generated": questions_generated,
-                "answers_evaluated": int(total_interviews * 1.2),  # Approximation
-                "emotions_detected": int(total_interviews * 0.95),  # Approximation
-                "model_uptime": model_uptime
-            },
-            "models": [
-                {
-                    "name": "GPT-4 Interview Engine",
-                    "status": "Active",
-                    "accuracy": 92.3,
-                    "uptime": 99.9
-                },
-                {
-                    "name": "Face Recognition V3",
-                    "status": "Active",
-                    "accuracy": 96.1,
-                    "uptime": 99.7
-                },
-                {
-                    "name": "Speech Analysis",
-                    "status": "Active",
-                    "accuracy": 84.2,
-                    "uptime": 99.5
-                },
-                {
-                    "name": "Emotion Detection",
-                    "status": "Active",
-                    "accuracy": 89.7,
-                    "uptime": 99.8
-                }
-            ],
-            "recent_sessions": []  # Can be populated from interview logs
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching AI performance: {str(e)}"
-        )
-
-@router.delete("/audit-logs/old")
-async def delete_old_audit_logs(days: int = 30):
-    """Delete audit logs older than specified days"""
-    try:
-        from ..core.database import get_mongo_db
-        
-        mongo_db = get_mongo_db()
-        
-        if mongo_db is None:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Database not available"
-            )
-        
-        audit_coll = mongo_db["admin_audit_logs"]
-        
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
-        result = await audit_coll.delete_many({"timestamp": {"$lt": cutoff_date}})
-        
-        return {
-            "message": f"Deleted {result.deleted_count} old audit logs",
-            "deleted_count": result.deleted_count
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error deleting old audit logs: {str(e)}"
-        )
