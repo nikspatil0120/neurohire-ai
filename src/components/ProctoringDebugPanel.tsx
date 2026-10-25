@@ -186,6 +186,12 @@ const ProctoringDebugPanel = ({
             label="Look-away"
             value={`${(proctoring.totalLookAwayMs / 1000).toFixed(1)}s`}
           />
+          {lastFrame?.prohibitedObjects && lastFrame.prohibitedObjects.length > 0 && (
+            <Row
+              label="Objects"
+              value={lastFrame.prohibitedObjects.map(o => `${o.label} (${Math.round(o.score * 100)}%)`).join(", ")}
+            />
+          )}
         </Section>
 
         {/* ── Violations log ─────────────────────────────────────────── */}
@@ -200,7 +206,9 @@ const ProctoringDebugPanel = ({
                   }`}>
                     {v.severity.toUpperCase()[0]}
                   </span>
-                  <span className="text-white/60 truncate">{v.type}</span>
+                  <span className="text-white/60 truncate">
+                    {v.type}{v.detail ? ` (${v.detail})` : ""}
+                  </span>
                   <span className="text-white/30 shrink-0 ml-auto">
                     {v.durationMs != null ? `${(v.durationMs / 1000).toFixed(1)}s` : "open"}
                   </span>

@@ -818,11 +818,12 @@ class EmotionBreakdown(BaseModel):
 
 class ViolationEventPayload(BaseModel):
     id:         str
-    type:       str   # "multiple_faces" | "face_not_visible" | "looking_away" | "tab_switched" | "window_blurred"
+    type:       str   # "multiple_faces" | "face_not_visible" | "looking_away" | "tab_switched" | "window_blurred" | "prohibited_object"
     startTime:  float # ms epoch
     endTime:    Optional[float] = None
     durationMs: Optional[float] = None
     severity:   str   # "low" | "medium" | "high"
+    detail:     Optional[str] = None
 
 class QuestionSignalsPayload(BaseModel):
     questionId:          Any

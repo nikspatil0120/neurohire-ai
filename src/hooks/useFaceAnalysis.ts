@@ -13,6 +13,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import * as faceapi from "face-api.js";
+import DetectorWorker from "@/workers/detector.worker?worker";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -47,11 +48,30 @@ export type FaceLandmarkData = {
   smileScore: number;         // 0-1  derived from mouth corner lift
 };
 
+export const PROHIBITED_CLASSES: Record<string, string> = {
+  "cell phone": "Mobile phone",
+  "phone": "Mobile phone",
+  "mouse": "Computer mouse",
+  "remote": "Remote / phone device",
+  "laptop": "Secondary screen",
+  "book": "Book / notes",
+  "tv": "Monitor / screen",
+  "keyboard": "Keyboard",
+};
+
+export type DetectedProhibitedObject = {
+  class: string;
+  label: string;
+  score: number;
+  bbox?: [number, number, number, number];
+};
+
 export type FrameSignal = {
   timestamp: number;
   faceCount: number;           // number of distinct faces detected in frame
   detectionScore: number;      // confidence of primary face detection (0-1)
   primaryFace: FaceLandmarkData | null;
+  prohibitedObjects?: DetectedProhibitedObject[];
   frameProcessingMs: number;   // actual time taken — used for adaptive throttle
 };
 
@@ -190,6 +210,13 @@ export function useFaceAnalysis(
   const [error, setError] = useState<CameraError | null>(null);
   const [lastFrame, setLastFrame] = useState<FrameSignal | null>(null);
 
+  // Prohibited object detection worker & cache
+  const workerRef = useRef<Worker | null>(null);
+  const workerReadyRef = useRef<boolean>(false);
+  const workerBusyRef = useRef<boolean>(false);
+  const lastObjectTickRef = useRef<number>(0);
+  const cachedProhibitedObjects = useRef<DetectedProhibitedObject[]>([]);
+
   // Keep onFrame stable in the rAF loop without recreating the loop
   const onFrameRef = useRef(onFrame);
   useEffect(() => { onFrameRef.current = onFrame; }, [onFrame]);
@@ -207,7 +234,7 @@ export function useFaceAnalysis(
     let cancelled = false;
 
     const init = async () => {
-      // ── Step 1: Load models (only if not already loaded) ─────────────────
+      // ── Step 1: Load face models (only if not already loaded) ─────────────────
       try {
         if (!faceapi.nets.tinyFaceDetector.isLoaded) {
           await faceapi.nets.tinyFaceDetector.loadFromUri(MODELS_PATH);
@@ -291,11 +318,38 @@ export function useFaceAnalysis(
           faceCount: 0,
           detectionScore: 0,
           primaryFace: null,
+          prohibitedObjects: cachedProhibitedObjects.current,
           frameProcessingMs: 0,
         };
 
         try {
           if (video.readyState >= 2) {
+            // Dispatch frame to object detection worker every ~300ms
+            if (
+              workerRef.current &&
+              workerReadyRef.current &&
+              !workerBusyRef.current &&
+              (now - lastObjectTickRef.current >= 300)
+            ) {
+              lastObjectTickRef.current = now;
+              workerBusyRef.current = true;
+              createImageBitmap(video)
+                .then(bitmap => {
+                  if (!cancelled && workerRef.current) {
+                    workerRef.current.postMessage(
+                      { type: "DETECT", imageBitmap: bitmap },
+                      [bitmap]
+                    );
+                  } else {
+                    bitmap.close();
+                    workerBusyRef.current = false;
+                  }
+                })
+                .catch(() => {
+                  workerBusyRef.current = false;
+                });
+            }
+
             const detections = await faceapi
               .detectAllFaces(video, detectorOptions)
               .withFaceLandmarks();
@@ -341,10 +395,49 @@ export function useFaceAnalysis(
       rafRef.current = requestAnimationFrame(loop);
     };
 
+    // Initialize isolated object detector worker
+    let worker: Worker | null = null;
+    try {
+      worker = new DetectorWorker();
+      workerRef.current = worker;
+
+      worker.onmessage = (e: MessageEvent) => {
+        if (cancelled) return;
+        const data = e.data;
+        if (data.type === "READY") {
+          workerReadyRef.current = true;
+          console.log("✅ [Object Detector Worker] Ready & listening for frames");
+        } else if (data.type === "PREDICTIONS") {
+          workerBusyRef.current = false;
+          const predictions = data.predictions || [];
+          const prohibited: DetectedProhibitedObject[] = predictions
+            .filter((p: any) => PROHIBITED_CLASSES[p.class?.toLowerCase()])
+            .map((p: any) => ({
+              class: p.class.toLowerCase(),
+              label: PROHIBITED_CLASSES[p.class.toLowerCase()],
+              score: Math.round(p.score * 100) / 100,
+              bbox: p.bbox,
+            }));
+          if (prohibited.length > 0) {
+            console.warn("⚠️ [Proctoring] Detected prohibited objects:", prohibited);
+          }
+          cachedProhibitedObjects.current = prohibited;
+        } else if (data.type === "ERROR") {
+          console.warn("[Object Detector Worker] Error:", data.error);
+        }
+      };
+    } catch (err) {
+      console.warn("Could not instantiate object detector worker:", err);
+    }
+
     init();
 
     return () => {
       cancelled = true;
+      if (worker) {
+        worker.terminate();
+        workerRef.current = null;
+      }
       stopEverything();
     };
   }, []); // intentionally empty — runs once on mount, cleans up on unmount

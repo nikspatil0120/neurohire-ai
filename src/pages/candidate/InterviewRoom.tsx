@@ -2,11 +2,15 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import GlassCard from "@/components/GlassCard";
 import WaveformAnimation from "@/components/WaveformAnimation";
-import { CandidateCamera } from "@/components/CandidateCamera";
 import { InterviewerAvatar } from "@/components/InterviewerAvatar";
+import CameraPreview from "@/components/CameraPreview";
+import ProctoringDebugPanel from "@/components/ProctoringDebugPanel";
+import { useFaceAnalysis } from "@/hooks/useFaceAnalysis";
+import { useProctoringMonitor } from "@/hooks/useProctoringMonitor";
+import { useCandidateSignals } from "@/hooks/useCandidateSignals";
 import {
-  Brain, Camera, Clock, AlertTriangle, Mic, MicOff, BarChart3,
-  TrendingUp, X, Volume2, ArrowLeft, RefreshCw, CheckCircle2, Send,
+  Brain, Camera, Clock, AlertTriangle, Mic, MicOff,
+  X, Volume2, ArrowLeft, RefreshCw, CheckCircle2, Send, ShieldOff,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -394,6 +398,37 @@ const InterviewRoom = () => {
   // Helper function to check termination across all async operations
   const isTerminated = useCallback(() => terminatedRef.current, []);
 
+  // ── Face analysis + proctoring + candidate signals ────────────────────────
+  const proctoring = useProctoringMonitor();
+  const signals    = useCandidateSignals();
+
+  // Accumulates per-question aggregates for the backend signals payload
+  const signalAggregatesRef = useRef<any[]>([]);
+
+  // Stable refs for use inside runInterview without stale closure
+  const proctoringRef = useRef(proctoring);
+  const signalsRef    = useRef(signals);
+  useEffect(() => { proctoringRef.current = proctoring; }, [proctoring]);
+  useEffect(() => { signalsRef.current    = signals;    }, [signals]);
+
+  // useFaceAnalysis is wired here — it calls proctoring.pushFrame + signals.pushFrame
+  // on every detection tick via the onFrame callback.
+  const faceAnalysis = useFaceAnalysis(
+    useCallback((frame) => {
+      proctoringRef.current.pushFrame(frame);
+      signalsRef.current.pushFrame(frame);
+    }, []),
+  );
+
+  // Camera-denied modal: shown as a blocking overlay when camera is required
+  // but access was denied. Interview is NOT silently continued without camera.
+  const [showCameraModal, setShowCameraModal] = useState(false);
+  useEffect(() => {
+    if (faceAnalysis.error && faceAnalysis.error !== "model_load_failed") {
+      setShowCameraModal(true);
+    }
+  }, [faceAnalysis.error]);
+
   // ── Audio Level Meter from Camera/Mic stream ─────────────────────────────
   const handleMediaStream = useCallback((stream: MediaStream) => {
     mediaStreamRef.current = stream;
@@ -401,8 +436,8 @@ const InterviewRoom = () => {
     if (!audioTrack) return;
 
     try {
-      if (audioContextRef.current) {
-        try { audioContextRef.current.close(); } catch { /* ignore */ }
+      if (audioContextRef.current && audioContextRef.current.state !== "closed") {
+        try { audioContextRef.current.close().catch(() => {}); } catch { /* ignore */ }
       }
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (!AudioCtx) return;
@@ -432,6 +467,47 @@ const InterviewRoom = () => {
     }
   }, []);
 
+  // Acquire microphone stream for speech-to-text recording & audio level visualizer
+  useEffect(() => {
+    let micStream: MediaStream | null = null;
+    navigator.mediaDevices?.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    }).then((stream) => {
+      micStream = stream;
+      handleMediaStream(stream);
+    }).catch((err) => {
+      console.warn("Microphone access error:", err);
+    });
+
+    return () => {
+      if (micStream) {
+        micStream.getTracks().forEach((t) => t.stop());
+      }
+    };
+  }, [handleMediaStream]);
+
+  /** Submit accumulated signals to backend — fire-and-forget, never blocks interview */
+  const submitSignals = useCallback(async (aggregates: any[]) => {
+    if (!aggregates.length) return;
+    try {
+      await fetch(`${API}/interview-ai/signals`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          interview_id: state.applicationId || `session_${Date.now()}`,
+          signals:      aggregates,
+        }),
+      });
+    } catch (e) {
+      // Signals submission failure must never affect the interview
+      console.warn("Signals submission failed (non-fatal):", e);
+    }
+  }, [state.applicationId]);
+
   // ── Terminate Interview Handler ───────────────────────────────────────────
   const handleTerminate = useCallback(() => {
     terminatedRef.current = true;
@@ -456,8 +532,8 @@ const InterviewRoom = () => {
     }
 
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-    if (audioContextRef.current) {
-      try { audioContextRef.current.close(); } catch { /* ignore */ }
+    if (audioContextRef.current && audioContextRef.current.state !== "closed") {
+      try { audioContextRef.current.close().catch(() => {}); } catch { /* ignore */ }
     }
 
     setAiMode("idle");
@@ -482,8 +558,8 @@ const InterviewRoom = () => {
         activeRecognitionRef.current = null;
       }
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-      if (audioContextRef.current) {
-        try { audioContextRef.current.close(); } catch { /* ignore */ }
+      if (audioContextRef.current && audioContextRef.current.state !== "closed") {
+        try { audioContextRef.current.close().catch(() => {}); } catch { /* ignore */ }
       }
     };
   }, []);
@@ -569,6 +645,9 @@ const InterviewRoom = () => {
       setCurrentCategory(mq.category || "");
       setLiveTranscript("");
       manualAnswerRef.current = "";
+
+      // ── Signal tracking for this question ───────────────────────────────
+      signalsRef.current.startQuestion(mq.id);
 
       // Speak the initial question
       setAiMode("speaking");
@@ -696,6 +775,14 @@ const InterviewRoom = () => {
         exchanges,
         final_eval: lastEval,
       });
+
+      // ── Collect per-question signals aggregate ───────────────────────────
+      const agg = signalsRef.current.endQuestion(
+        proctoringRef.current.violations.filter(
+          v => v.startTime >= (Date.now() - 300_000), // last 5 min — wide window
+        ),
+      );
+      if (agg) signalAggregatesRef.current.push(agg);
     }
 
     if (terminatedRef.current) {
@@ -709,6 +796,9 @@ const InterviewRoom = () => {
     setCurrentTopic("");
     setCurrentCategory("");
     setLiveTranscript("");
+
+    // Submit signals in parallel with final scoring — non-blocking
+    submitSignals(signalAggregatesRef.current);
 
     try {
       const result = await computeFinalScore();
@@ -740,7 +830,7 @@ const InterviewRoom = () => {
       setIsFinished(true);
       runningRef.current = false;
     }
-  }, [respondToCandidate, computeFinalScore, isTerminated, state.applicationId]);
+  }, [respondToCandidate, computeFinalScore, submitSignals, isTerminated, state.applicationId]);
 
   // Start on mount when questions are ready
   useEffect(() => {
@@ -1011,13 +1101,16 @@ const InterviewRoom = () => {
 
         {/* Candidate camera + live transcript - RIGHT */}
         <div className="flex flex-col gap-4">
-          <GlassCard variant="neon" hover={false} className="aspect-video flex items-center justify-center relative overflow-hidden p-0">
-            <CandidateCamera enabled={!terminated} onStream={handleMediaStream} />
-            <div className="absolute top-4 right-4 z-10 flex items-center gap-2 bg-black/60 px-2.5 py-1 rounded-full backdrop-blur-sm border border-white/10">
-              <div className="w-2 h-2 rounded-full bg-destructive animate-glow-pulse" />
-              <span className="text-[10px] font-semibold text-white tracking-wider">LIVE FEED</span>
-            </div>
-          </GlassCard>
+          <div className="aspect-video relative overflow-hidden rounded-xl border border-border/40">
+            <CameraPreview
+              videoRef={faceAnalysis.videoRef}
+              ready={faceAnalysis.ready}
+              error={faceAnalysis.error}
+              proctoringStatus={proctoring.status}
+              activeViolations={proctoring.activeViolations}
+              activeViolationDetails={proctoring.activeViolationDetails}
+            />
+          </div>
 
           {/* Live transcript & interactive response box */}
           <GlassCard variant="neon" hover={false} className="p-4">
@@ -1110,65 +1203,49 @@ const InterviewRoom = () => {
         </div>
       </div>
 
-      {/* ── Metrics row ── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Emotion Analysis */}
-        <GlassCard variant="neon" hover={false}>
-          <h4 className="text-xs text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
-            <BarChart3 className="w-3 h-3 text-primary" /> Emotion Analysis
-          </h4>
-          <div className="space-y-2">
-            {[
-              { label: "Confidence", value: difficultyLevel === 3 ? 88 : difficultyLevel === 2 ? 76 : 64, color: "bg-primary" },
-              { label: "Calm",       value: 70, color: "bg-neon-purple" },
-              { label: "Engaged",    value: 84, color: "bg-primary" },
-              { label: "Stress",     value: difficultyLevel === 1 ? 35 : 20, color: "bg-destructive" },
-            ].map((e) => (
-              <div key={e.label} className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground w-20">{e.label}</span>
-                <div className="flex-1 h-1.5 rounded-full bg-muted/30">
-                  <div className={`h-full rounded-full ${e.color} transition-all duration-500`} style={{ width: `${e.value}%` }} />
-                </div>
-                <span className="text-xs font-mono text-foreground w-8">{e.value}%</span>
-              </div>
-            ))}
-          </div>
-        </GlassCard>
-
-        {/* Confidence meter */}
-        <GlassCard variant="neon" hover={false} className="flex flex-col items-center justify-center">
-          <h4 className="text-xs text-muted-foreground uppercase tracking-wider mb-4">Overall Confidence</h4>
-          <div className="relative w-28 h-28">
-            <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
-              <circle cx="50" cy="50" r="42" fill="none" stroke="hsl(222, 30%, 14%)" strokeWidth="6" />
-              <circle
-                cx="50" cy="50" r="42" fill="none"
-                stroke="hsl(185, 100%, 50%)" strokeWidth="6"
-                strokeDasharray={`${(difficultyLevel === 3 ? 88 : 78) * 2.64} ${264 - (difficultyLevel === 3 ? 88 : 78) * 2.64}`}
-                strokeLinecap="round"
-                className="drop-shadow-[0_0_8px_hsl(185_100%_50%/0.5)] transition-all duration-500"
-              />
-            </svg>
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="font-display text-2xl text-primary neon-glow">
-                {difficultyLevel === 3 ? "88%" : "78%"}
-              </span>
+      {/* ── Camera-denied blocking modal ── */}
+      {showCameraModal && (
+        <div className="fixed inset-0 z-[150] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-background border border-border/50 rounded-2xl p-8 max-w-sm w-full text-center space-y-5 shadow-2xl">
+            <div className="w-14 h-14 rounded-full bg-destructive/10 border border-destructive/30 flex items-center justify-center mx-auto">
+              <ShieldOff className="w-7 h-7 text-destructive" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-foreground mb-1">Camera Access Required</h2>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                {faceAnalysis.error === "permission_denied_os"
+                  ? "Your operating system is blocking camera access. Open System Preferences / Settings → Privacy → Camera and allow your browser."
+                  : faceAnalysis.error === "not_found"
+                  ? "No camera was detected. Connect a webcam and reload the page."
+                  : faceAnalysis.error === "in_use"
+                  ? "Your camera is being used by another application. Close it and reload."
+                  : "Camera access was denied. Click the camera icon in your browser's address bar to allow access, then reload."}
+              </p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => window.location.reload()}
+                className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-all"
+              >
+                Reload &amp; Try Again
+              </button>
+              <button
+                onClick={() => setShowCameraModal(false)}
+                className="w-full py-2.5 rounded-lg border border-border/40 text-muted-foreground text-sm hover:bg-muted/20 transition-all"
+              >
+                Continue Without Camera
+              </button>
             </div>
           </div>
-        </GlassCard>
+        </div>
+      )}
 
-        {/* Voice stability */}
-        <GlassCard variant="neon" hover={false}>
-          <h4 className="text-xs text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
-            <TrendingUp className="w-3 h-3 text-primary" /> Voice Stability
-          </h4>
-          <WaveformAnimation bars={24} className="h-16 mb-3" />
-          <div className="flex justify-between text-xs">
-            <span className="text-muted-foreground">Signal Quality</span>
-            <span className="text-primary font-mono font-medium">Optimal (86%)</span>
-          </div>
-        </GlassCard>
-      </div>
+      {/* ── Dev debug panel (VITE_DEBUG_PROCTORING=true only) ── */}
+      <ProctoringDebugPanel
+        lastFrame={faceAnalysis.lastFrame}
+        proctoring={proctoring}
+        signals={signals}
+      />
     </div>
   );
 };

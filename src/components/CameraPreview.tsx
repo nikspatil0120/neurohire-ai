@@ -20,27 +20,30 @@ import { Camera, AlertTriangle, Loader } from "lucide-react";
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 interface CameraPreviewProps {
-  videoRef:          RefObject<HTMLVideoElement>;
-  ready:             boolean;
-  error:             CameraError | null;
-  proctoringStatus:  ProctoringStatus;
-  activeViolations:  Set<ViolationType>;
+  videoRef:                RefObject<HTMLVideoElement>;
+  ready:                   boolean;
+  error:                   CameraError | null;
+  proctoringStatus:        ProctoringStatus;
+  activeViolations:        Set<ViolationType>;
+  activeViolationDetails?: Record<string, string>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Violation → candidate-facing hint (calm, not alarming, actionable)
 // ─────────────────────────────────────────────────────────────────────────────
 const VIOLATION_HINT: Partial<Record<ViolationType, string>> = {
-  face_not_visible: "Please stay in frame",
-  multiple_faces:   "Multiple faces detected",
-  looking_away:     "Please look at the camera",
-  tab_switched:     "You left the interview tab",
-  window_blurred:   "Interview window lost focus",
+  prohibited_object: "Prohibited object detected",
+  multiple_faces:    "Multiple faces detected",
+  tab_switched:      "You left the interview tab",
+  window_blurred:    "Interview window lost focus",
+  face_not_visible:  "Please stay in frame",
+  looking_away:      "Please look at the camera",
 };
 
-function getActiveHint(active: Set<ViolationType>): string | null {
+function getActiveHint(active: Set<ViolationType>, details?: Record<string, string>): string | null {
   // Priority order — show the most important one
   const priority: ViolationType[] = [
+    "prohibited_object",
     "multiple_faces",
     "tab_switched",
     "window_blurred",
@@ -48,7 +51,12 @@ function getActiveHint(active: Set<ViolationType>): string | null {
     "looking_away",
   ];
   for (const v of priority) {
-    if (active.has(v)) return VIOLATION_HINT[v] ?? null;
+    if (active.has(v)) {
+      if (v === "prohibited_object" && details?.prohibited_object) {
+        return `Prohibited object in frame: ${details.prohibited_object}`;
+      }
+      return VIOLATION_HINT[v] ?? null;
+    }
   }
   return null;
 }
@@ -113,8 +121,9 @@ const CameraPreview = ({
   error,
   proctoringStatus,
   activeViolations,
+  activeViolationDetails,
 }: CameraPreviewProps) => {
-  const hint       = getActiveHint(activeViolations);
+  const hint       = getActiveHint(activeViolations, activeViolationDetails);
   const borderCls  = STATUS_BORDER[proctoringStatus];
   const dotCls     = STATUS_DOT[proctoringStatus];
   const liveLabel  = STATUS_LABEL[proctoringStatus];
@@ -170,6 +179,14 @@ const CameraPreview = ({
           <span className={`text-[10px] font-semibold tracking-wide ${isAlarmed ? "text-amber-300" : "text-white/80"}`}>
             {liveLabel}
           </span>
+        </div>
+      )}
+
+      {/* ── Prohibited object alert banner (pulsing) ── */}
+      {activeViolations.has("prohibited_object") && (
+        <div className="absolute top-3 left-3 z-30 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-red-600/95 text-white text-xs font-semibold shadow-xl shadow-red-600/50 border border-white/20 animate-pulse">
+          <AlertTriangle className="w-4 h-4 text-white shrink-0" />
+          <span>⚠️ {activeViolationDetails?.prohibited_object ? `${activeViolationDetails.prohibited_object} Detected` : "Prohibited Object Detected"}</span>
         </div>
       )}
 

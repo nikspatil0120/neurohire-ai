@@ -38,7 +38,8 @@ export type ViolationType =
   | "face_not_visible"
   | "looking_away"
   | "tab_switched"
-  | "window_blurred";
+  | "window_blurred"
+  | "prohibited_object";
 
 export type ViolationSeverity = "low" | "medium" | "high";
 
@@ -49,6 +50,7 @@ export interface ViolationEvent {
   endTime: number | null;
   durationMs: number | null;
   severity: ViolationSeverity;
+  detail?: string;
 }
 
 export type ProctoringStatus = "clear" | "flagged" | "high_risk";
@@ -57,6 +59,7 @@ export interface ProctoringState {
   status: ProctoringStatus;
   violations: ViolationEvent[];
   activeViolations: Set<ViolationType>; // currently ongoing
+  activeViolationDetails: Record<string, string>; // e.g. prohibited_object -> "Mobile phone"
   totalLookAwayMs: number;
   /** Call this to ingest each new FrameSignal */
   pushFrame: (signal: FrameSignal) => void;
@@ -66,11 +69,12 @@ export interface ProctoringState {
 // Severity mapping
 // ─────────────────────────────────────────────────────────────────────────────
 const SEVERITY: Record<ViolationType, ViolationSeverity> = {
-  multiple_faces:   "high",
-  tab_switched:     "high",
-  face_not_visible: "medium",
-  looking_away:     "low",
-  window_blurred:   "medium",
+  multiple_faces:    "high",
+  tab_switched:      "high",
+  prohibited_object: "high",
+  face_not_visible:  "medium",
+  looking_away:      "low",
+  window_blurred:    "medium",
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -94,17 +98,19 @@ function deriveProctoringStatus(violations: ViolationEvent[]): ProctoringStatus 
 // Hook
 // ─────────────────────────────────────────────────────────────────────────────
 export function useProctoringMonitor(): ProctoringState {
-  const [violations,       setViolations]       = useState<ViolationEvent[]>([]);
-  const [activeViolations, setActiveViolations] = useState<Set<ViolationType>>(new Set());
-  const [status,           setStatus]           = useState<ProctoringStatus>("clear");
-  const [totalLookAwayMs,  setTotalLookAwayMs]  = useState(0);
+  const [violations,             setViolations]             = useState<ViolationEvent[]>([]);
+  const [activeViolations,       setActiveViolations]       = useState<Set<ViolationType>>(new Set());
+  const [activeViolationDetails, setActiveViolationDetails] = useState<Record<string, string>>({});
+  const [status,                 setStatus]                 = useState<ProctoringStatus>("clear");
+  const [totalLookAwayMs,        setTotalLookAwayMs]        = useState(0);
 
   // ── Rolling counters (refs — don't need to re-render on every frame) ────
-  const noFaceConsec      = useRef(0);
-  const multiFaceConsec   = useRef(0);
-  const lookAwayStartRef  = useRef<number | null>(null);
-  const lookAwayTotalRef  = useRef(0);
-  const lookAwayActive    = useRef(false);
+  const noFaceConsec           = useRef(0);
+  const multiFaceConsec        = useRef(0);
+  const prohibitedObjectConsec = useRef(0);
+  const lookAwayStartRef       = useRef<number | null>(null);
+  const lookAwayTotalRef       = useRef(0);
+  const lookAwayActive         = useRef(false);
 
   // Open violations that haven't been closed yet (keyed by type)
   const openViolations = useRef<Map<ViolationType, ViolationEvent>>(new Map());
@@ -115,7 +121,7 @@ export function useProctoringMonitor(): ProctoringState {
   // ─────────────────────────────────────────────────────────────────────────
   // Core mutation helpers
   // ─────────────────────────────────────────────────────────────────────────
-  const openViolation = useCallback((type: ViolationType, now: number) => {
+  const openViolation = useCallback((type: ViolationType, now: number, detail?: string) => {
     if (openViolations.current.has(type)) return; // already open
     const ev: ViolationEvent = {
       id:        makeId(),
@@ -124,11 +130,15 @@ export function useProctoringMonitor(): ProctoringState {
       endTime:   null,
       durationMs: null,
       severity:  SEVERITY[type],
+      detail,
     };
     openViolations.current.set(type, ev);
     violationsRef.current = [...violationsRef.current, ev];
     setViolations([...violationsRef.current]);
     setActiveViolations(prev => new Set([...prev, type]));
+    if (detail) {
+      setActiveViolationDetails(prev => ({ ...prev, [type]: detail }));
+    }
     setStatus(deriveProctoringStatus(violationsRef.current));
   }, []);
 
@@ -143,6 +153,11 @@ export function useProctoringMonitor(): ProctoringState {
     setActiveViolations(prev => {
       const next = new Set(prev);
       next.delete(type);
+      return next;
+    });
+    setActiveViolationDetails(prev => {
+      const next = { ...prev };
+      delete next[type];
       return next;
     });
   }, []);
@@ -239,12 +254,21 @@ export function useProctoringMonitor(): ProctoringState {
       lookAwayStartRef.current = null;
       lookAwayActive.current   = false;
     }
+
+    // ── Prohibited objects (cell phone, mouse, laptop, book) ─────────────
+    if (signal.prohibitedObjects && signal.prohibitedObjects.length > 0) {
+      const primaryObj = signal.prohibitedObjects[0];
+      openViolation("prohibited_object", now, primaryObj.label || primaryObj.class);
+    } else {
+      closeViolation("prohibited_object", now);
+    }
   }, [openViolation, closeViolation]);
 
   return {
     status,
     violations,
     activeViolations,
+    activeViolationDetails,
     totalLookAwayMs,
     pushFrame,
   };
