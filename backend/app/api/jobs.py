@@ -31,6 +31,8 @@ class JobCreate(BaseModel):
     aptitude_duration: Optional[int] = None
     aptitude_priority: Optional[int] = None
     coding_priority: Optional[int] = None
+    coding_threshold: Optional[int] = None
+    coding_duration: Optional[int] = None
 
 class JobResponse(BaseModel):
     id: str
@@ -61,6 +63,8 @@ class JobUpdate(BaseModel):
     aptitude_duration: Optional[int] = None
     aptitude_priority: Optional[int] = None
     coding_priority: Optional[int] = None
+    coding_threshold: Optional[int] = None
+    coding_duration: Optional[int] = None
 
 class JobStatusUpdate(BaseModel):
     status: str  # "draft" or "published"
@@ -109,6 +113,8 @@ def job_helper(job) -> dict:
         "aptitude_duration": job.get("aptitude_duration", None),
         "aptitude_priority": job.get("aptitude_priority", None),
         "coding_priority": job.get("coding_priority", None),
+        "coding_threshold": job.get("coding_threshold", None),
+        "coding_duration": job.get("coding_duration", None),
         "views": job.get("views", 0),
         "applications": job.get("applications", 0),
         "created_at": job.get("created_at", ""),
@@ -143,6 +149,12 @@ async def create_job(job_data: JobCreate):
         # Prepare job document
         current_time = datetime.utcnow().isoformat()
         is_active = job_data.status == "published" if job_data.status else True
+
+        apt_questions = job_data.aptitude_questions or []
+        cod_problems = job_data.coding_problems or []
+        apt_priority = job_data.aptitude_priority if len(apt_questions) > 0 else None
+        cod_priority = job_data.coding_priority if len(cod_problems) > 0 else None
+
         job_document = {
             "title": job_data.title,
             "description": job_data.description or "",
@@ -158,12 +170,14 @@ async def create_job(job_data: JobCreate):
             "is_active": is_active,
             "start_date": job_data.start_date,
             "end_date": job_data.end_date,
-            "aptitude_questions": job_data.aptitude_questions or [],
-            "coding_problems": job_data.coding_problems or [],
-            "aptitude_threshold": job_data.aptitude_threshold,
-            "aptitude_duration": job_data.aptitude_duration,
-            "aptitude_priority": job_data.aptitude_priority,
-            "coding_priority": job_data.coding_priority,
+            "aptitude_questions": apt_questions,
+            "coding_problems": cod_problems,
+            "aptitude_threshold": job_data.aptitude_threshold if apt_priority is not None else None,
+            "aptitude_duration": job_data.aptitude_duration if apt_priority is not None else None,
+            "aptitude_priority": apt_priority,
+            "coding_priority": cod_priority,
+            "coding_threshold": job_data.coding_threshold if cod_priority is not None else None,
+            "coding_duration": job_data.coding_duration if cod_priority is not None else None,
             "views": 0,
             "applications": 0,
             "created_at": current_time,
@@ -397,6 +411,15 @@ async def update_job(job_id: str, job_update: JobUpdate):
         
         # Build update document
         update_data = {k: v for k, v in job_update.dict(exclude_unset=True).items()}
+
+        if "aptitude_questions" in update_data and not update_data.get("aptitude_questions"):
+            update_data["aptitude_priority"] = None
+            update_data["aptitude_threshold"] = None
+            update_data["aptitude_duration"] = None
+        if "coding_problems" in update_data and not update_data.get("coding_problems"):
+            update_data["coding_priority"] = None
+            update_data["coding_threshold"] = None
+            update_data["coding_duration"] = None
         
         if update_data:
             update_data["updated_at"] = datetime.utcnow().isoformat()

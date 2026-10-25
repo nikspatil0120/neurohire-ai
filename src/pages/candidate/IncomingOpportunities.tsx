@@ -239,6 +239,8 @@ const IncomingOpportunities = () => {
               const jobId   = job._id || job.id || "";
               const app     = applications[jobId];
               const expired = isJobExpired(job);
+              const hasApt  = job.aptitude_priority != null && (job.aptitude_questions?.length ?? 0) > 0;
+              const hasCod  = job.coding_priority != null && (job.coding_problems?.length ?? 0) > 0;
               return (
                 <div key={jobId} onClick={() => { setSelectedJob(job); setShowJobModal(true); }}
                   className={`aspect-square rounded-xl overflow-hidden cursor-pointer hover:scale-105 transition-transform duration-200 border ${
@@ -247,6 +249,23 @@ const IncomingOpportunities = () => {
 
                   {/* 65% — logo */}
                   <div className={`h-[65%] flex flex-col items-center justify-center p-4 relative ${job.company_logo ? "bg-white/10" : "bg-gradient-to-br from-primary/20 to-secondary/20"}`}>
+                    {/* Round badges top-left */}
+                    <div className="absolute top-2 left-2 flex flex-wrap gap-1 max-w-[62%] z-10 pointer-events-none">
+                      {hasApt && (
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-orange-500/20 text-orange-400 border border-orange-500/30 backdrop-blur-sm flex items-center gap-0.5 shadow-sm">
+                          <BookOpen className="w-2.5 h-2.5" /> Apt
+                        </span>
+                      )}
+                      {hasCod && (
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-blue-500/20 text-blue-400 border border-blue-500/30 backdrop-blur-sm flex items-center gap-0.5 shadow-sm">
+                          <Code className="w-2.5 h-2.5" /> Code
+                        </span>
+                      )}
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-purple-500/20 text-purple-400 border border-purple-500/30 backdrop-blur-sm flex items-center gap-0.5 shadow-sm">
+                        <Building2 className="w-2.5 h-2.5" /> Interview
+                      </span>
+                    </div>
+
                     {job.company_logo
                       ? <img src={job.company_logo} alt={job.organization_name} className="w-20 h-20 rounded-full object-cover shadow-lg"
                           onError={e => { e.currentTarget.style.display = "none"; e.currentTarget.nextElementSibling?.classList.remove("hidden"); }} />
@@ -371,32 +390,36 @@ const IncomingOpportunities = () => {
                 )}
 
                 {/* Rounds */}
-                {(selectedJob.aptitude_priority != null || selectedJob.coding_priority != null) && (
-                  <div className="p-4 rounded-xl bg-muted/20 border border-border/40 space-y-2">
-                    <h3 className="text-sm font-semibold text-foreground">Interview Rounds</h3>
-                    <div className="flex flex-wrap gap-2">
-                      {selectedJob.aptitude_priority != null && (
-                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-orange-500/10 border border-orange-500/30 text-sm">
-                          <BookOpen className="w-4 h-4 text-orange-400" />
-                          <span className="text-foreground font-medium">Aptitude</span>
-                          <span className="text-muted-foreground">· Priority {selectedJob.aptitude_priority}</span>
-                          {selectedJob.aptitude_duration != null && <span className="text-muted-foreground">· {selectedJob.aptitude_duration} min</span>}
+                {(() => {
+                  const hasApt = selectedJob.aptitude_priority != null && (selectedJob.aptitude_questions?.length ?? 0) > 0;
+                  const hasCod = selectedJob.coding_priority != null && (selectedJob.coding_problems?.length ?? 0) > 0;
+                  return (
+                    <div className="p-4 rounded-xl bg-muted/20 border border-border/40 space-y-2">
+                      <h3 className="text-sm font-semibold text-foreground">Interview Rounds</h3>
+                      <div className="flex flex-wrap gap-2">
+                        {hasApt && (
+                          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-orange-500/10 border border-orange-500/30 text-sm">
+                            <BookOpen className="w-4 h-4 text-orange-400" />
+                            <span className="text-foreground font-medium">Aptitude</span>
+                            <span className="text-muted-foreground">· Priority {selectedJob.aptitude_priority}</span>
+                            {selectedJob.aptitude_duration != null && <span className="text-muted-foreground">· {selectedJob.aptitude_duration} min</span>}
+                          </div>
+                        )}
+                        {hasCod && (
+                          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-500/10 border border-blue-500/30 text-sm">
+                            <Code className="w-4 h-4 text-blue-400" />
+                            <span className="text-foreground font-medium">Coding</span>
+                            <span className="text-muted-foreground">· Priority {selectedJob.coding_priority}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-purple-500/10 border border-purple-500/30 text-sm">
+                          <Building2 className="w-4 h-4 text-purple-400" />
+                          <span className="text-foreground font-medium">Interview</span>
                         </div>
-                      )}
-                      {selectedJob.coding_priority != null && (
-                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-500/10 border border-blue-500/30 text-sm">
-                          <Code className="w-4 h-4 text-blue-400" />
-                          <span className="text-foreground font-medium">Coding</span>
-                          <span className="text-muted-foreground">· Priority {selectedJob.coding_priority}</span>
-                        </div>
-                      )}
-                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-purple-500/10 border border-purple-500/30 text-sm">
-                        <Building2 className="w-4 h-4 text-purple-400" />
-                        <span className="text-foreground font-medium">Interview</span>
                       </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {/* Skills */}
                 <div>

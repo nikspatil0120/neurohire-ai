@@ -343,11 +343,11 @@ async def apply_for_job(app_data: ApplicationCreate):
 
 
 def _determine_first_round(job: dict) -> str:
-    """Return label of the first round based on priority settings."""
+    """Return label of the first round based on priority settings and question existence."""
     rounds = []
-    if job.get("aptitude_priority") is not None:
+    if job.get("aptitude_priority") is not None and len(job.get("aptitude_questions", [])) > 0:
         rounds.append(("aptitude", job["aptitude_priority"]))
-    if job.get("coding_priority") is not None:
+    if job.get("coding_priority") is not None and len(job.get("coding_problems", [])) > 0:
         rounds.append(("coding", job["coding_priority"]))
     rounds.append(("interview", 99))  # interview always last
     rounds.sort(key=lambda x: x[1])

@@ -256,18 +256,14 @@ const CreateJob = () => {
         organization_name: recruiter.organization,
         start_date: formData.startDate || null,
         end_date: formData.endDate || null,
-        aptitude_questions: aptitudeQuestions,
-        coding_problems: codingProblems,
-        ...(showAptitudeRound && {
-          aptitude_threshold: aptitudeThreshold,
-          aptitude_duration: aptitudeDuration,
-          aptitude_priority: aptitudePriority,
-        }),
-        ...(showCodingRound && {
-          coding_priority: codingPriority,
-          coding_threshold: codingThreshold,
-          coding_duration: codingDuration,
-        }),
+        aptitude_questions: showAptitudeRound ? aptitudeQuestions : [],
+        coding_problems: showCodingRound ? codingProblems : [],
+        aptitude_threshold: showAptitudeRound && aptitudeQuestions.length > 0 ? aptitudeThreshold : null,
+        aptitude_duration: showAptitudeRound && aptitudeQuestions.length > 0 ? aptitudeDuration : null,
+        aptitude_priority: showAptitudeRound && aptitudeQuestions.length > 0 ? aptitudePriority : null,
+        coding_priority: showCodingRound && codingProblems.length > 0 ? codingPriority : null,
+        coding_threshold: showCodingRound && codingProblems.length > 0 ? codingThreshold : null,
+        coding_duration: showCodingRound && codingProblems.length > 0 ? codingDuration : null,
         status: publishImmediately ? "published" : "draft",
       };
 

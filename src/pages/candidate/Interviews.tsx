@@ -93,6 +93,7 @@ const Interviews = () => {
   const [showModal,     setShowModal]     = useState(false);
   const [withdrawing,   setWithdrawing]   = useState(false);
   const [enteringInterview, setEnteringInterview] = useState(false);
+  const [enteringRoundType, setEnteringRoundType] = useState<TestType>("interview");
   const [entryProgress,     setEntryProgress]     = useState(0);
   const [entryReady,        setEntryReady]        = useState(false);
   const entryAppRef = useRef<Application | null>(null);
@@ -186,38 +187,64 @@ const Interviews = () => {
 
   // ── After agreement — start entry overlay + pre-generate questions ──────
   const handleStartInterview = () => {
+    const roundType = instructionsType || "interview";
+    setEnteringRoundType(roundType);
     setInstructionsType(null);
     setShowModal(false);
 
-    // Only pre-generate for interview round; aptitude/coding navigate directly
-    if (instructionsType === "aptitude") {
+    // Only pre-generate for interview round; aptitude/coding navigate directly with animated progress
+    if (roundType === "aptitude") {
       setEnteringInterview(true);
       setEntryProgress(0);
-      setTimeout(() => {
-        setEnteringInterview(false);
-        navigate("/candidate/aptitude-test", {
-          state: {
-            questions:     selectedApp?.aptitude_questions || [],
-            duration:      selectedApp?.aptitude_duration  || 30,
-            threshold:     selectedApp?.aptitude_threshold ?? null,
-            applicationId: selectedApp?._id || "",
-          },
-        });
-      }, 1500);
+      setEntryReady(false);
+      let p = 0;
+      const interval = setInterval(() => {
+        p += 20;
+        setEntryProgress(Math.min(p, 100));
+        if (p >= 100) {
+          clearInterval(interval);
+          setEntryReady(true);
+          setTimeout(() => {
+            setEnteringInterview(false);
+            setEntryProgress(0);
+            setEntryReady(false);
+            navigate("/candidate/aptitude-test", {
+              state: {
+                questions:     selectedApp?.aptitude_questions || [],
+                duration:      selectedApp?.aptitude_duration  || 30,
+                threshold:     selectedApp?.aptitude_threshold ?? null,
+                applicationId: selectedApp?._id || "",
+              },
+            });
+          }, 350);
+        }
+      }, 120);
       return;
     }
-    if (instructionsType === "coding") {
+    if (roundType === "coding") {
       setEnteringInterview(true);
       setEntryProgress(0);
-      setTimeout(() => {
-        setEnteringInterview(false);
-        navigate("/candidate/technical-coding", {
-          state: {
-            problems:      selectedApp?.coding_problems || [],
-            applicationId: selectedApp?._id || "",
-          },
-        });
-      }, 1500);
+      setEntryReady(false);
+      let p = 0;
+      const interval = setInterval(() => {
+        p += 20;
+        setEntryProgress(Math.min(p, 100));
+        if (p >= 100) {
+          clearInterval(interval);
+          setEntryReady(true);
+          setTimeout(() => {
+            setEnteringInterview(false);
+            setEntryProgress(0);
+            setEntryReady(false);
+            navigate("/candidate/technical-coding", {
+              state: {
+                problems:      selectedApp?.coding_problems || [],
+                applicationId: selectedApp?._id || "",
+              },
+            });
+          }, 350);
+        }
+      }, 120);
       return;
     }
 
@@ -419,12 +446,32 @@ const Interviews = () => {
           </GlassCard>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-            {applications.map((app) => (
+            {applications.map((app) => {
+              const hasApt = app.aptitude_priority != null && (app.aptitude_questions?.length ?? 0) > 0;
+              const hasCod = app.coding_priority != null && (app.coding_problems?.length ?? 0) > 0;
+              return (
               <div key={app._id} onClick={() => { setSelectedApp(app); setShowModal(true); }}
-                className="aspect-square rounded-xl overflow-hidden cursor-pointer hover:scale-105 transition-transform duration-200 bg-gradient-to-br from-primary/10 to-secondary/10 border border-border/30 hover:border-primary/50">
+                className="aspect-square rounded-xl overflow-hidden cursor-pointer hover:scale-105 transition-transform duration-200 bg-gradient-to-br from-primary/10 to-secondary/10 border border-border/30 hover:border-primary/50 relative">
 
                 {/* 65% — logo */}
                 <div className={`h-[65%] flex flex-col items-center justify-center p-4 relative ${app.company_logo ? "bg-white/10" : "bg-gradient-to-br from-primary/20 to-secondary/20"}`}>
+                  {/* Round badges top-left */}
+                  <div className="absolute top-2 left-2 flex flex-wrap gap-1 max-w-[62%] z-10 pointer-events-none">
+                    {hasApt && (
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-orange-500/20 text-orange-400 border border-orange-500/30 backdrop-blur-sm flex items-center gap-0.5 shadow-sm">
+                        <BookOpen className="w-2.5 h-2.5" /> Apt
+                      </span>
+                    )}
+                    {hasCod && (
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-blue-500/20 text-blue-400 border border-blue-500/30 backdrop-blur-sm flex items-center gap-0.5 shadow-sm">
+                        <Code className="w-2.5 h-2.5" /> Code
+                      </span>
+                    )}
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-purple-500/20 text-purple-400 border border-purple-500/30 backdrop-blur-sm flex items-center gap-0.5 shadow-sm">
+                      <Building2 className="w-2.5 h-2.5" /> Interview
+                    </span>
+                  </div>
+
                   {app.company_logo
                     ? <img src={app.company_logo} alt={app.organization_name}
                         className="w-20 h-20 rounded-full object-cover shadow-lg"
@@ -452,7 +499,7 @@ const Interviews = () => {
                   </p>
                 </div>
               </div>
-            ))}
+            );})}
           </div>
         )}
       </div>
@@ -577,12 +624,14 @@ const Interviews = () => {
 
                 const aptPri  = selectedApp.aptitude_priority  ?? null;
                 const codPri  = selectedApp.coding_priority    ?? null;
+                const hasAptitude = aptPri !== null && (selectedApp.aptitude_questions?.length ?? 0) > 0;
+                const hasCoding   = codPri !== null && (selectedApp.coding_problems?.length ?? 0) > 0;
 
                 // Collect optional rounds sorted by their priority number
                 const optional: { pri: number; def: RoundDef }[] = [];
-                if (aptPri !== null) {
+                if (hasAptitude) {
                   optional.push({
-                    pri: aptPri,
+                    pri: aptPri!,
                     def: {
                       key: "aptitude",
                       label: "Aptitude Test",
@@ -591,9 +640,9 @@ const Interviews = () => {
                     },
                   });
                 }
-                if (codPri !== null) {
+                if (hasCoding) {
                   optional.push({
-                    pri: codPri,
+                    pri: codPri!,
                     def: {
                       key: "coding",
                       label: "Coding Round",
@@ -629,8 +678,10 @@ const Interviews = () => {
                   if (rounds.length > 1) clearedKeys = [rounds[0].key];
                 }
 
-                // current_round from app tells us which round is active now
-                const activeKey = selectedApp.current_round || rounds[0]?.key;
+                // current_round from app tells us which round is active now (fallback to first configured round)
+                const activeKey = rounds.some(r => r.key === selectedApp.current_round)
+                  ? selectedApp.current_round
+                  : rounds[0]?.key;
 
                 // ── Color helpers ────────────────────────────────────────────────
                 const colorMap: Record<string, { bg: string; border: string; text: string; btn: string }> = {
@@ -759,32 +810,36 @@ const Interviews = () => {
               )}
 
               {/* Rounds */}
-              {(selectedApp.aptitude_priority != null || selectedApp.coding_priority != null) && (
-                <div className="p-4 rounded-xl bg-muted/20 border border-border/40 space-y-2">
-                  <h3 className="text-sm font-semibold text-foreground">Interview Rounds</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedApp.aptitude_priority != null && (
-                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-orange-500/10 border border-orange-500/30 text-sm">
-                        <BookOpen className="w-4 h-4 text-orange-400" />
-                        <span className="font-medium text-foreground">Aptitude</span>
-                        <span className="text-muted-foreground">· P{selectedApp.aptitude_priority}</span>
-                        {selectedApp.aptitude_duration != null && <span className="text-muted-foreground">· {selectedApp.aptitude_duration} min</span>}
+              {(() => {
+                const hasApt = selectedApp.aptitude_priority != null && (selectedApp.aptitude_questions?.length ?? 0) > 0;
+                const hasCod = selectedApp.coding_priority != null && (selectedApp.coding_problems?.length ?? 0) > 0;
+                return (
+                  <div className="p-4 rounded-xl bg-muted/20 border border-border/40 space-y-2">
+                    <h3 className="text-sm font-semibold text-foreground">Interview Rounds</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {hasApt && (
+                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-orange-500/10 border border-orange-500/30 text-sm">
+                          <BookOpen className="w-4 h-4 text-orange-400" />
+                          <span className="font-medium text-foreground">Aptitude</span>
+                          <span className="text-muted-foreground">· P{selectedApp.aptitude_priority}</span>
+                          {selectedApp.aptitude_duration != null && <span className="text-muted-foreground">· {selectedApp.aptitude_duration} min</span>}
+                        </div>
+                      )}
+                      {hasCod && (
+                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-500/10 border border-blue-500/30 text-sm">
+                          <Code className="w-4 h-4 text-blue-400" />
+                          <span className="font-medium text-foreground">Coding</span>
+                          <span className="text-muted-foreground">· P{selectedApp.coding_priority}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-purple-500/10 border border-purple-500/30 text-sm">
+                        <Building2 className="w-4 h-4 text-purple-400" />
+                        <span className="font-medium text-foreground">Interview</span>
                       </div>
-                    )}
-                    {selectedApp.coding_priority != null && (
-                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-500/10 border border-blue-500/30 text-sm">
-                        <Code className="w-4 h-4 text-blue-400" />
-                        <span className="font-medium text-foreground">Coding</span>
-                        <span className="text-muted-foreground">· P{selectedApp.coding_priority}</span>
-                      </div>
-                    )}
-                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-purple-500/10 border border-purple-500/30 text-sm">
-                      <Building2 className="w-4 h-4 text-purple-400" />
-                      <span className="font-medium text-foreground">Interview</span>
                     </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* Required Skills */}
               {selectedApp.required_skills && selectedApp.required_skills.length > 0 && (
@@ -841,15 +896,21 @@ const Interviews = () => {
       {/* ── Pre-interview entry overlay ── */}
       {enteringInterview && (
         <div className="fixed inset-0 z-[100] bg-background flex flex-col items-center justify-center gap-8">
-          {/* Pulsing brain icon */}
+          {/* Pulsing icon */}
           <div className="relative">
             <div className={`w-28 h-28 rounded-full bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center ${entryReady ? "" : "pulse-glow"}`}>
-              <Brain className={`w-14 h-14 ${entryReady ? "text-green-400" : "text-primary"}`} />
+              {enteringRoundType === "aptitude" ? (
+                <BookOpen className={`w-14 h-14 ${entryReady ? "text-green-400" : "text-orange-400"}`} />
+              ) : enteringRoundType === "coding" ? (
+                <Code className={`w-14 h-14 ${entryReady ? "text-green-400" : "text-blue-400"}`} />
+              ) : (
+                <Brain className={`w-14 h-14 ${entryReady ? "text-green-400" : "text-primary"}`} />
+              )}
             </div>
             {!entryReady && (
               <>
-                <span className="absolute inset-0 rounded-full border border-primary/40 animate-ping" />
-                <span className="absolute inset-[-12px] rounded-full border border-primary/20 animate-ping"
+                <span className={`absolute inset-0 rounded-full border ${enteringRoundType === "aptitude" ? "border-orange-500/40" : enteringRoundType === "coding" ? "border-blue-500/40" : "border-primary/40"} animate-ping`} />
+                <span className={`absolute inset-[-12px] rounded-full border ${enteringRoundType === "aptitude" ? "border-orange-500/20" : enteringRoundType === "coding" ? "border-blue-500/20" : "border-primary/20"} animate-ping`}
                   style={{ animationDelay: "0.3s" }} />
               </>
             )}
@@ -858,12 +919,30 @@ const Interviews = () => {
           {/* Message */}
           <div className="text-center space-y-2">
             <h1 className="font-display text-3xl tracking-widest text-foreground neon-glow">
-              {entryReady ? "ALL SET!" : "ENTERING INTERVIEW ROOM"}
+              {entryReady ? "ALL SET!" : (
+                enteringRoundType === "aptitude"
+                  ? "ENTERING APTITUDE TEST"
+                  : enteringRoundType === "coding"
+                  ? "ENTERING CODING ROUND"
+                  : "ENTERING INTERVIEW ROOM"
+              )}
             </h1>
             <p className="text-muted-foreground text-sm">
               {entryReady
-                ? "Starting your interview now…"
-                : "Get ready — your AI interview is being prepared"}
+                ? (
+                  enteringRoundType === "aptitude"
+                    ? "Starting your aptitude test now…"
+                    : enteringRoundType === "coding"
+                    ? "Starting your coding challenge now…"
+                    : "Starting your interview now…"
+                )
+                : (
+                  enteringRoundType === "aptitude"
+                    ? "Get ready — your aptitude assessment is being prepared"
+                    : enteringRoundType === "coding"
+                    ? "Get ready — your coding environment is being prepared"
+                    : "Get ready — your AI interview is being prepared"
+                )}
             </p>
           </div>
 
