@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import GlassCard from "@/components/GlassCard";
+import { ADMIN_NAV_ITEMS } from "@/constants/adminNavItems";
 import { 
-  LayoutDashboard, Shield, Users, Building2, Brain, Code, Plus, 
-  Edit, Trash2, Save, X, CheckCircle, XCircle, AlertCircle, BookOpen
+  Plus, Edit, Trash2, Save, X, CheckCircle, XCircle, AlertCircle, Search, BookOpen
 } from "lucide-react";
 
 interface Option {
@@ -22,16 +22,6 @@ interface AptitudeQuestion {
   tags: string[];
 }
 
-const navItems = [
-  { label: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
-  { label: "System Monitor", href: "/admin/monitoring", icon: Shield },
-  { label: "Recruiters", href: "/admin/recruiters", icon: Building2 },
-  { label: "Candidates", href: "/admin/candidates", icon: Users },
-  { label: "DSA Problems", href: "/admin/dsa-problems", icon: Code },
-  { label: "Aptitude Questions", href: "/admin/aptitude-questions", icon: BookOpen },
-  { label: "AI Performance", href: "/admin/ai-performance", icon: Brain },
-];
-
 const API_BASE_URL = "http://localhost:8000/api/v1/aptitude-questions";
 
 const AptitudeQuestions = () => {
@@ -43,6 +33,9 @@ const AptitudeQuestions = () => {
   const [tagsInput, setTagsInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [bulkAction, setBulkAction] = useState<"none" | "delete" | "publish" | "export">("none");
+  const [selectedQuestions, setSelectedQuestions] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadQuestions();
@@ -188,11 +181,73 @@ const AptitudeQuestions = () => {
   const filteredQuestions = questions.filter(q => {
     const matchesCategory = filterCategory === "All" || q.category === filterCategory;
     const matchesDifficulty = filterDifficulty === "All" || q.difficulty === filterDifficulty;
-    return matchesCategory && matchesDifficulty;
+    const matchesSearch = searchQuery === "" || 
+      q.question.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      q.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()));
+    return matchesCategory && matchesDifficulty && matchesSearch;
   });
 
+  const handleSelectAll = () => {
+    if (selectedQuestions.size === filteredQuestions.length) {
+      setSelectedQuestions(new Set());
+    } else {
+      setSelectedQuestions(new Set(filteredQuestions.map(q => q.id || "")));
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedQuestions.size === 0) {
+      alert("Please select questions to delete");
+      return;
+    }
+    if (!confirm(`Delete ${selectedQuestions.size} selected questions?`)) return;
+    
+    for (const id of selectedQuestions) {
+      await handleDelete(id);
+    }
+    setSelectedQuestions(new Set());
+  };
+
+  const handleBulkExport = () => {
+    if (selectedQuestions.size === 0) {
+      alert("Please select questions to export");
+      return;
+    }
+    
+    const toExport = filteredQuestions.filter(q => selectedQuestions.has(q.id || ""));
+    const csv = [
+      ["ID", "Question", "Category", "Difficulty", "Option A", "Option B", "Option C", "Option D", "Correct Answer", "Explanation", "Tags"].join(","),
+      ...toExport.map(q => {
+        const correctIdx = q.options.findIndex(o => o.isCorrect);
+        return [
+          q.id,
+          `"${q.question.replace(/"/g, '""')}"`,
+          q.category,
+          q.difficulty,
+          `"${q.options[0]?.text || ""}"`,
+          `"${q.options[1]?.text || ""}"`,
+          `"${q.options[2]?.text || ""}"`,
+          `"${q.options[3]?.text || ""}"`,
+          String.fromCharCode(65 + correctIdx),
+          `"${q.explanation.replace(/"/g, '""')}"`,
+          `"${q.tags.join("; ")}"`
+        ].join(",");
+      })
+    ].join("\n");
+    
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `aptitude_questions_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    setSelectedQuestions(new Set());
+  };
+
   return (
-    <DashboardLayout navItems={navItems} title="APTITUDE QUESTIONS">
+    <DashboardLayout navItems={ADMIN_NAV_ITEMS} title="APTITUDE QUESTIONS">
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -211,15 +266,41 @@ const AptitudeQuestions = () => {
           </button>
         </div>
 
-        {/* Filters */}
+        {/* Stats */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          {[
+            { label: "Total", value: questions.length, color: "text-primary" },
+            { label: "Verbal", value: questions.filter(q => q.category === "Verbal").length, color: "text-blue-400" },
+            { label: "Quantitative", value: questions.filter(q => q.category === "Quantitative").length, color: "text-purple-400" },
+            { label: "Reasoning", value: questions.filter(q => q.category === "Reasoning").length, color: "text-orange-400" },
+            { label: "Technical", value: questions.filter(q => q.category === "Technical").length, color: "text-green-400" },
+          ].map((s) => (
+            <GlassCard key={s.label} variant="neon" hover={false}>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">{s.label}</p>
+              <p className={`text-2xl font-bold mt-1 ${s.color}`}>{s.value}</p>
+            </GlassCard>
+          ))}
+        </div>
+
+        {/* Filters & Search */}
         <GlassCard variant="neon">
-          <div className="flex items-center gap-4">
+          <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Search questions or tags..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 bg-muted/30 border border-border/50 rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary/50 text-sm"
+              />
+            </div>
             <div className="flex items-center gap-2">
               <label className="text-sm text-muted-foreground">Category:</label>
               <select
                 value={filterCategory}
                 onChange={(e) => setFilterCategory(e.target.value as any)}
-                className="px-3 py-1.5 bg-muted/30 border border-border/50 rounded text-sm text-foreground"
+                className="px-3 py-2 bg-muted/30 border border-border/50 rounded text-sm text-foreground"
               >
                 <option value="All">All</option>
                 <option value="Verbal">Verbal</option>
@@ -233,7 +314,7 @@ const AptitudeQuestions = () => {
               <select
                 value={filterDifficulty}
                 onChange={(e) => setFilterDifficulty(e.target.value as any)}
-                className="px-3 py-1.5 bg-muted/30 border border-border/50 rounded text-sm text-foreground"
+                className="px-3 py-2 bg-muted/30 border border-border/50 rounded text-sm text-foreground"
               >
                 <option value="All">All</option>
                 <option value="Easy">Easy</option>
@@ -243,6 +324,40 @@ const AptitudeQuestions = () => {
             </div>
           </div>
         </GlassCard>
+
+        {/* Bulk Actions */}
+        {selectedQuestions.size > 0 && (
+          <GlassCard variant="neon" className="bg-primary/5 border-primary/30">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-foreground">
+                  {selectedQuestions.size} question{selectedQuestions.size !== 1 ? "s" : ""} selected
+                </p>
+                <p className="text-xs text-muted-foreground">Choose an action to perform on selected items</p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleBulkExport}
+                  className="px-4 py-2 bg-blue-500/20 text-blue-400 border border-blue-500/40 rounded-lg text-sm font-medium hover:bg-blue-500/30 transition-all"
+                >
+                  📥 Export {selectedQuestions.size}
+                </button>
+                <button
+                  onClick={handleBulkDelete}
+                  className="px-4 py-2 bg-red-500/20 text-red-400 border border-red-500/40 rounded-lg text-sm font-medium hover:bg-red-500/30 transition-all"
+                >
+                  🗑️ Delete {selectedQuestions.size}
+                </button>
+                <button
+                  onClick={() => setSelectedQuestions(new Set())}
+                  className="px-4 py-2 bg-muted/30 text-muted-foreground border border-border/50 rounded-lg text-sm font-medium hover:bg-muted/50 transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </GlassCard>
+        )}
 
         {/* Add/Edit Form */}
         {(isAddingNew || editingId) && (
@@ -386,12 +501,56 @@ const AptitudeQuestions = () => {
             </div>
           ) : (
             <div className="space-y-3">
+              {/* Select All */}
+              <div className="p-4 bg-muted/10 border border-border/30 rounded-lg flex items-center justify-between">
+                <label className="flex items-center gap-3 cursor-pointer flex-1">
+                  <input
+                    type="checkbox"
+                    checked={selectedQuestions.size === filteredQuestions.length && filteredQuestions.length > 0}
+                    onChange={handleSelectAll}
+                    className="w-4 h-4 rounded cursor-pointer"
+                  />
+                  <span className="text-sm font-medium text-foreground">
+                    Select All ({filteredQuestions.length})
+                  </span>
+                </label>
+              </div>
+
               {filteredQuestions.map((question) => (
                 <div
                   key={question.id}
-                  className="p-4 border border-border/30 rounded-lg hover:bg-muted/20 transition-colors"
+                  className={`p-4 border rounded-lg transition-colors flex items-start gap-3 ${
+                    selectedQuestions.has(question.id || "")
+                      ? "bg-primary/10 border-primary/30"
+                      : "border-border/30 hover:bg-muted/20"
+                  }`}
                 >
-                  <div className="flex items-start justify-between">
+                  <input
+                    type="checkbox"
+                    checked={selectedQuestions.has(question.id || "")}
+                    onChange={(e) => {
+                      const newSet = new Set(selectedQuestions);
+                      if (e.target.checked) {
+                        newSet.add(question.id || "");
+                      } else {
+                        newSet.delete(question.id || "");
+                      }
+                      setSelectedQuestions(newSet);
+                    }}
+                    className="w-4 h-4 rounded cursor-pointer mt-1 flex-shrink-0"
+                  />
+                  <div
+                    onClick={() => {
+                      const newSet = new Set(selectedQuestions);
+                      if (newSet.has(question.id || "")) {
+                        newSet.delete(question.id || "");
+                      } else {
+                        newSet.add(question.id || "");
+                      }
+                      setSelectedQuestions(newSet);
+                    }}
+                    className="flex-1 cursor-pointer"
+                    >
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
                         <span className="text-xs font-medium text-foreground">
@@ -422,7 +581,8 @@ const AptitudeQuestions = () => {
                         ))}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 ml-4">
+                  </div>
+                    <div className="flex items-center gap-2 ml-4 flex-shrink-0">
                       <button
                         onClick={() => handleEdit(question)}
                         className="p-2 hover:bg-muted/50 rounded transition-colors"
@@ -438,7 +598,6 @@ const AptitudeQuestions = () => {
                         <Trash2 className="w-4 h-4 text-red-500" />
                       </button>
                     </div>
-                  </div>
                 </div>
               ))}
             </div>

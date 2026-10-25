@@ -11,8 +11,8 @@ import logging
 from app.config import settings
 from app.core.database import init_db, close_db
 from app.utils.logger import setup_logging, APILogger, SecurityLogger
-from app.api import auth, users, jobs, interviews, websocket, problems, admin, aptitude, companies, applications, interview_ai, messages
-from app.api import recruiter_questions
+from app.api import auth, users, jobs, interviews, websocket, problems, admin, aptitude, companies, avatar, applications, recruiter_questions, interview_ai, messages
+from app.api.routes import simli
 
 # Setup logging
 setup_logging(log_level="INFO" if not settings.DEBUG else "DEBUG")
@@ -202,16 +202,18 @@ async def root():
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(users.router, prefix="/api/v1")
 app.include_router(jobs.router, prefix="/api/v1")
+app.include_router(applications.router, prefix="/api/v1")
+app.include_router(recruiter_questions.router, prefix="/api/v1")
 app.include_router(interviews.router, prefix="/api/v1")
 app.include_router(websocket.router, prefix="/api/v1")
 app.include_router(problems.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
 app.include_router(aptitude.router, prefix="/api/v1")
 app.include_router(companies.router, prefix="/api/v1")
-app.include_router(applications.router, prefix="/api/v1")
 app.include_router(interview_ai.router, prefix="/api/v1")
-app.include_router(recruiter_questions.router, prefix="/api/v1")
 app.include_router(messages.router, prefix="/api/v1")
+app.include_router(avatar.router, prefix="/api", tags=["avatar"])  # Avatar integration
+app.include_router(simli.router)  # Simli avatar integration
 
 # Mount storage directory for uploaded files and media
 os.makedirs("storage/uploads/chat", exist_ok=True)
@@ -253,6 +255,6 @@ if __name__ == "__main__":
         "app.main:app",
         host="0.0.0.0",
         port=8000,
-        reload=settings.DEBUG,
+        reload=False,  # Disable reload to prevent module globals from being reset
         log_level="info"
     )

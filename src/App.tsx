@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProfileProvider } from "@/contexts/ProfileContext";
 import { GoogleAuthProvider } from "@/components/GoogleOAuthProvider";
+import DatabaseStatus from "@/components/DatabaseStatus";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import LoginSimple from "./pages/LoginSimple";
@@ -21,6 +22,7 @@ import ProblemList from "./pages/candidate/ProblemList";
 import AptitudeTest from "./pages/candidate/AptitudeTest";
 import TechnicalCoding from "./pages/candidate/TechnicalCoding";
 import InterviewRoom from "./pages/candidate/InterviewRoom";
+import QuickStartInterview from "./pages/candidate/QuickStartInterview";
 import Interviews from "./pages/candidate/Interviews";
 import Report from "./pages/candidate/Report";
 import IncomingOpportunities from "./pages/candidate/IncomingOpportunities";
@@ -31,16 +33,15 @@ import OfferResponse from "./pages/candidate/OfferResponse";
 import RecruiterDashboard from "./pages/recruiter/Dashboard";
 import RecruiterProfile from "./pages/recruiter/Profile";
 import CreateJob from "./pages/recruiter/CreateJob";
-import EditJob from "./pages/recruiter/EditJob";
 import JobsCreated from "./pages/recruiter/JobsCreated";
 import Applicants from "./pages/recruiter/Applicants";
+import EditJob from "./pages/recruiter/EditJob";
 import QuestionDB from "./pages/recruiter/QuestionDB";
-import Reports from "./pages/recruiter/Rankings";
+import Rankings from "./pages/recruiter/Rankings";
 import Messaging from "./pages/recruiter/Messaging";
 
 // Admin
 import AdminDashboard from "./pages/admin/Dashboard";
-import SystemMonitoring from "./pages/admin/SystemMonitoring";
 import DSAProblems from "./pages/admin/DSAProblems";
 import AptitudeQuestions from "./pages/admin/AptitudeQuestions";
 import Recruiters from "./pages/admin/Recruiters";
@@ -48,6 +49,7 @@ import Candidates from "./pages/admin/Candidates";
 import IncomingJobs from "./pages/admin/IncomingJobs";
 import AdminApplications from "./pages/admin/Applications";
 import AdminMessaging from "./pages/admin/Messaging";
+import DataExport from "./pages/admin/DataExport";
 
 const queryClient = new QueryClient();
 
@@ -73,6 +75,8 @@ const App = () => (
                 <Route path="/candidate/aptitude-test" element={<AptitudeTest />} />
                 <Route path="/candidate/technical-coding" element={<TechnicalCoding />} />
                 <Route path="/candidate/interview-room" element={<InterviewRoom />} />
+                <Route path="/candidate/interview/:interviewId" element={<InterviewRoom />} />
+                <Route path="/candidate/quick-start-interview" element={<QuickStartInterview />} />
                 <Route path="/candidate/interviews" element={<Interviews />} />
                 <Route path="/candidate/reports" element={<Report />} />
                 <Route path="/candidate/incoming-opportunities" element={<IncomingOpportunities />} />
@@ -83,16 +87,15 @@ const App = () => (
                 <Route path="/recruiter/dashboard" element={<RecruiterDashboard />} />
                 <Route path="/recruiter/profile" element={<RecruiterProfile />} />
                 <Route path="/recruiter/create-job" element={<CreateJob />} />
-                <Route path="/recruiter/edit-job/:jobId" element={<EditJob />} />
                 <Route path="/recruiter/jobs-created" element={<JobsCreated />} />
                 <Route path="/recruiter/applicants" element={<Applicants />} />
+                <Route path="/recruiter/edit-job/:jobId" element={<EditJob />} />
                 <Route path="/recruiter/questions" element={<QuestionDB />} />
-                <Route path="/recruiter/rankings" element={<Reports />} />
+                <Route path="/recruiter/rankings" element={<Rankings />} />
                 <Route path="/recruiter/messages" element={<Messaging />} />
 
                 {/* Admin */}
                 <Route path="/admin/dashboard" element={<AdminDashboard />} />
-                <Route path="/admin/monitoring" element={<SystemMonitoring />} />
                 <Route path="/admin/recruiters" element={<Recruiters />} />
                 <Route path="/admin/candidates" element={<Candidates />} />
                 <Route path="/admin/dsa-problems" element={<DSAProblems />} />
@@ -100,6 +103,7 @@ const App = () => (
                 <Route path="/admin/incoming-jobs" element={<IncomingJobs />} />
                 <Route path="/admin/applications" element={<AdminApplications />} />
                 <Route path="/admin/messages" element={<AdminMessaging />} />
+                <Route path="/admin/data-export" element={<DataExport />} />
 
                 <Route path="*" element={<NotFound />} />
               </Routes>

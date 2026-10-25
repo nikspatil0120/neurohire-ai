@@ -540,20 +540,23 @@ const Interviews = () => {
                 );
               })()}
 
-              {/* ── Round progress — visible only after application deadline has passed ── */}
+              {/* ── Round progress & Assessment Actions ── */}
               {(() => {
-                // Only show after application end date (compare calendar date, not exact time)
-                // Also trigger immediately if the backend has already marked the job as expired
-                if (!selectedApp.end_date) return null;
-                const endDateStr = selectedApp.end_date.endsWith("Z")
-                  ? selectedApp.end_date
-                  : selectedApp.end_date + "Z";
-                const endDay = new Date(endDateStr);
-                // Normalise both to start-of-day in LOCAL time for a date-only comparison
-                const endMidnight = new Date(endDay.getFullYear(), endDay.getMonth(), endDay.getDate());
-                const todayMidnight = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
-                const isExpired = selectedApp.job_status === "expired" || todayMidnight >= endMidnight;
-                if (!isExpired) return null;
+                // Check if the final test deadline (3 days after application close) has passed
+                if (selectedApp.end_date) {
+                  const endIso = selectedApp.end_date.endsWith("Z")
+                    ? selectedApp.end_date
+                    : selectedApp.end_date + "Z";
+                  const deadlineDate = new Date(endIso);
+                  deadlineDate.setUTCDate(deadlineDate.getUTCDate() + 3);
+                  if (new Date() > deadlineDate) {
+                    return (
+                      <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-sm text-red-400">
+                        The test window for this job closed on {deadlineDate.toLocaleDateString()}.
+                      </div>
+                    );
+                  }
+                }
 
                 // ── Determine round states using actual scores ───────────────
                 const scores = selectedApp.scores || {};

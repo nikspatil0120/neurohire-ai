@@ -23,7 +23,6 @@ export const ROUTES = {
   
   // Admin routes
   ADMIN_DASHBOARD: "/admin/dashboard",
-  ADMIN_MONITORING: "/admin/monitoring",
 } as const;
 
 export const QUESTION_TYPES = {

@@ -1,25 +1,14 @@
 ﻿import { useState, useEffect } from "react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import GlassCard from "@/components/GlassCard";
+import { ADMIN_NAV_ITEMS } from "@/constants/adminNavItems";
 import {
-  LayoutDashboard, Shield, Users, Building2, Brain, Code, BookOpen, Briefcase,
   X, MapPin, DollarSign, Clock, Calendar, Building, AlignLeft, ExternalLink,
+  Search, Star, RefreshCw, Briefcase, BookOpen, Code, Users
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 const API = "http://localhost:8000/api/v1";
-
-const navItems = [
-  { label: "Dashboard",          href: "/admin/dashboard",          icon: LayoutDashboard },
-  { label: "System Monitor",     href: "/admin/monitoring",         icon: Shield },
-  { label: "Recruiters",         href: "/admin/recruiters",         icon: Building2 },
-  { label: "Candidates",         href: "/admin/candidates",         icon: Users },
-  { label: "Incoming Jobs",      href: "/admin/incoming-jobs",      icon: Briefcase },
-  { label: "Applications",       href: "/admin/applications",       icon: Users },
-  { label: "DSA Problems",       href: "/admin/dsa-problems",       icon: Code },
-  { label: "Aptitude Questions", href: "/admin/aptitude-questions", icon: BookOpen },
-  { label: "AI Performance",     href: "/admin/ai-performance",     icon: Brain },
-];
 
 interface Job {
   _id: string;
@@ -51,11 +40,19 @@ interface Job {
 const IncomingJobs = () => {
   const navigate = useNavigate();
   const [jobs,         setJobs]         = useState<Job[]>([]);
+  const [filteredJobs, setFilteredJobs] = useState<Job[]>([]);
   const [isLoading,    setIsLoading]    = useState(true);
   const [selectedJob,  setSelectedJob]  = useState<Job | null>(null);
   const [showJobModal, setShowJobModal] = useState(false);
+  const [searchQuery,  setSearchQuery]  = useState("");
+  const [filterStatus, setFilterStatus] = useState<"all" | "active" | "closed">("all");
+  const [featuredJobs, setFeaturedJobs] = useState<Set<string>>(new Set());
 
   useEffect(() => { loadJobs(); }, []);
+
+  useEffect(() => {
+    filterJobs();
+  }, [searchQuery, filterStatus, jobs]);
 
   const loadJobs = async () => {
     setIsLoading(true);
@@ -90,9 +87,67 @@ const IncomingJobs = () => {
     }
   };
 
+  const filterJobs = () => {
+    let filtered = [...jobs];
+    
+    // Search filter
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter(j => 
+        j.title.toLowerCase().includes(q) ||
+        j.organization_name.toLowerCase().includes(q) ||
+        j.location.toLowerCase().includes(q)
+      );
+    }
+    
+    // Status filter
+    if (filterStatus === "active") {
+      filtered = filtered.filter(j => !j.end_date || new Date(j.end_date) > new Date());
+    } else if (filterStatus === "closed") {
+      filtered = filtered.filter(j => j.end_date && new Date(j.end_date) <= new Date());
+    }
+    
+    setFilteredJobs(filtered);
+  };
+
+  const toggleFeature = (jobId: string) => {
+    const newSet = new Set(featuredJobs);
+    if (newSet.has(jobId)) {
+      newSet.delete(jobId);
+    } else {
+      newSet.add(jobId);
+    }
+    setFeaturedJobs(newSet);
+  };
+
+  const exportJobs = async () => {
+    const csv = [
+      ["ID", "Title", "Company", "Location", "Salary", "Experience", "Applications", "Status"].join(","),
+      ...jobs.map(j => [
+        j._id,
+        `"${j.title.replace(/"/g, '""')}"`,
+        `"${j.organization_name.replace(/"/g, '""')}"`,
+        j.location,
+        j.salary || "Competitive",
+        j.experience,
+        j.applications,
+        j.end_date && new Date(j.end_date) <= new Date() ? "Closed" : "Active"
+      ].join(","))
+    ].join("\n");
+    
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `jobs_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
   if (isLoading) {
     return (
-      <DashboardLayout navItems={navItems} title="INCOMING JOBS">
+      <DashboardLayout navItems={ADMIN_NAV_ITEMS} title="INCOMING JOBS">
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />
         </div>
@@ -100,10 +155,89 @@ const IncomingJobs = () => {
     );
   }
 
+  const activeJobs = jobs.filter(j => !j.end_date || new Date(j.end_date) > new Date()).length;
+  const closedJobs = jobs.filter(j => j.end_date && new Date(j.end_date) <= new Date()).length;
+
   return (
-    <DashboardLayout navItems={navItems} title="INCOMING JOBS">
+    <DashboardLayout navItems={ADMIN_NAV_ITEMS} title="JOBS">
       <div className="space-y-6">
-        {jobs.length === 0 ? (
+        {/* Header Stats */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-display text-foreground mb-1">Job Management</h2>
+            <p className="text-sm text-muted-foreground">Manage and moderate job postings</p>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="px-3 py-2 bg-primary/10 rounded-lg text-center">
+              <p className="text-xs text-muted-foreground">Total Jobs</p>
+              <p className="text-xl font-display text-primary">{jobs.length}</p>
+            </div>
+            <div className="px-3 py-2 bg-green-500/10 rounded-lg text-center">
+              <p className="text-xs text-muted-foreground">Active</p>
+              <p className="text-xl font-display text-green-400">{activeJobs}</p>
+            </div>
+            <div className="px-3 py-2 bg-red-500/10 rounded-lg text-center">
+              <p className="text-xs text-muted-foreground">Closed</p>
+              <p className="text-xl font-display text-red-400">{closedJobs}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Search and Filters */}
+        <GlassCard variant="neon" hover={false}>
+          <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Search jobs, companies, locations..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 bg-muted/30 border border-border/50 rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary/50 text-sm"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setFilterStatus("all")}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  filterStatus === "all"
+                    ? "bg-primary/20 text-primary border border-primary/40"
+                    : "bg-muted/30 text-muted-foreground border border-transparent hover:border-border"
+                }`}
+              >
+                All Jobs
+              </button>
+              <button
+                onClick={() => setFilterStatus("active")}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  filterStatus === "active"
+                    ? "bg-green-500/20 text-green-400 border border-green-500/40"
+                    : "bg-muted/30 text-muted-foreground border border-transparent hover:border-border"
+                }`}
+              >
+                Active
+              </button>
+              <button
+                onClick={() => setFilterStatus("closed")}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  filterStatus === "closed"
+                    ? "bg-red-500/20 text-red-400 border border-red-500/40"
+                    : "bg-muted/30 text-muted-foreground border border-transparent hover:border-border"
+                }`}
+              >
+                Closed
+              </button>
+            </div>
+            <button
+              onClick={exportJobs}
+              className="px-4 py-2 bg-blue-500/20 text-blue-400 border border-blue-500/40 rounded-lg text-sm font-medium hover:bg-blue-500/30 transition-all"
+            >
+              📥 Export CSV
+            </button>
+          </div>
+        </GlassCard>
+
+        {filteredJobs.length === 0 ? (
           <GlassCard variant="neon" hover={false}>
             <div className="text-center py-12">
               <Briefcase className="w-16 h-16 mx-auto mb-4 text-muted-foreground opacity-50" />
@@ -113,9 +247,14 @@ const IncomingJobs = () => {
           </GlassCard>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-            {jobs.map((job) => (
-              <div key={job._id} onClick={() => { setSelectedJob(job); setShowJobModal(true); }}
-                className="aspect-square rounded-xl overflow-hidden cursor-pointer hover:scale-105 transition-transform duration-200 bg-gradient-to-br from-primary/10 to-secondary/10 border border-border/30 hover:border-primary/50 relative">
+            {filteredJobs.map((job) => (
+              <div key={job._id}
+                className={`aspect-square rounded-xl overflow-hidden cursor-pointer hover:scale-105 transition-transform duration-200 border hover:border-primary/50 relative group ${
+                  featuredJobs.has(job._id)
+                    ? "bg-gradient-to-br from-yellow-500/20 to-orange-500/20 border-yellow-500/40"
+                    : "bg-gradient-to-br from-primary/10 to-secondary/10 border-border/30"
+                }`}
+                onClick={() => { setSelectedJob(job); setShowJobModal(true); }}>
 
                 {/* 62% â€” logo */}
                 <div className={`h-[62%] flex flex-col items-center justify-center p-4 ${job.company_logo ? "bg-white/10" : "bg-gradient-to-br from-primary/20 to-secondary/20"}`}>
@@ -126,10 +265,16 @@ const IncomingJobs = () => {
                   <div className={`w-16 h-16 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-lg ${job.company_logo ? "hidden" : ""}`}>
                     <Building className="w-8 h-8 text-white" />
                   </div>
-                  {/* Applicant count badge */}
+                  {/* Badges */}
                   {job.applications > 0 && (
                     <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold">
                       {job.applications} applied
+                    </div>
+                  )}
+                  {featuredJobs.has(job._id) && (
+                    <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-yellow-500 text-white text-[10px] font-bold flex items-center gap-1">
+                      <Star className="w-3 h-3 fill-current" />
+                      Featured
                     </div>
                   )}
                 </div>
