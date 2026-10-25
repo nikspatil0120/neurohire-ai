@@ -8,6 +8,7 @@ import {
   Brain, Camera, Clock, AlertTriangle, Mic, MicOff, BarChart3,
   TrendingUp, X, Volume2, ArrowLeft, RefreshCw, CheckCircle2, Send,
   Shield, ShieldAlert, AlertOctagon, UserCheck, Sparkles,
+  Lock, Unlock, Maximize2, Minimize2,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import * as faceapi from "face-api.js";
@@ -396,6 +397,19 @@ const InterviewRoom = () => {
   const [securityTerminated,        setSecurityTerminated]        = useState(false);
   const [securityTerminationReason, setSecurityTerminationReason] = useState("");
 
+  // ── Window Lockdown & Anti-Cheat State (Dev Mode Unlockable) ───────────────
+  const [isWindowLocked,            setIsWindowLocked]            = useState(true);
+  const [isFullscreen,              setIsFullscreen]              = useState(false);
+  const [windowViolationsCount,     setWindowViolationsCount]     = useState(0);
+  const [showWindowViolationModal,  setShowWindowViolationModal]  = useState(false);
+  const [needsFullscreenPrompt,     setNeedsFullscreenPrompt]     = useState(false);
+  const isWindowLockedRef           = useRef(true);
+
+  // Keep window lock ref synchronized
+  useEffect(() => {
+    isWindowLockedRef.current = isWindowLocked;
+  }, [isWindowLocked]);
+
   // ── Refs ──────────────────────────────────────────────────────────────────
   const transcriptRef               = useRef<TranscriptItem[]>([]);
   const correctnessHistory          = useRef<number[]>([]);
@@ -484,10 +498,83 @@ const InterviewRoom = () => {
     }
   }, []);
 
+  // ── Window Lockdown & Fullscreen Controls ─────────────────────────────────
+  const enterFullscreenAndLock = useCallback(async () => {
+    try {
+      const elem = document.documentElement as any;
+      if (!document.fullscreenElement) {
+        if (elem.requestFullscreen) {
+          await elem.requestFullscreen();
+        } else if (elem.webkitRequestFullscreen) {
+          await elem.webkitRequestFullscreen();
+        } else if (elem.msRequestFullscreen) {
+          await elem.msRequestFullscreen();
+        }
+      }
+      setIsFullscreen(true);
+      setNeedsFullscreenPrompt(false);
+      setShowWindowViolationModal(false);
+
+      // Keyboard Lock API (Locks Escape, Alt, Tab, Windows keys in modern Chromium browsers)
+      if ((navigator as any).keyboard?.lock) {
+        try {
+          await (navigator as any).keyboard.lock(["Escape", "AltLeft", "AltRight", "Tab", "MetaLeft", "MetaRight"]);
+        } catch { /* keyboard lock permissions */ }
+      }
+    } catch (err) {
+      console.warn("[Lockdown] Fullscreen request prevented by browser policy (user gesture required):", err);
+      if (isWindowLockedRef.current) {
+        setNeedsFullscreenPrompt(true);
+      }
+    }
+  }, []);
+
+  const exitFullscreenAndUnlock = useCallback(async () => {
+    try {
+      if ((navigator as any).keyboard?.unlock) {
+        try { (navigator as any).keyboard.unlock(); } catch { /* ignore */ }
+      }
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      }
+      setIsFullscreen(false);
+    } catch (err) {
+      console.warn("[Lockdown] Exit fullscreen notice:", err);
+    }
+  }, []);
+
+  const toggleDevModeLock = useCallback(async () => {
+    if (isWindowLockedRef.current) {
+      // Dev mode: unlock window
+      setIsWindowLocked(false);
+      isWindowLockedRef.current = false;
+      await exitFullscreenAndUnlock();
+      setShowWindowViolationModal(false);
+      setNeedsFullscreenPrompt(false);
+      console.log("[Lockdown] 🔓 Developer Mode: Window unlocked.");
+    } else {
+      // Dev mode: re-lock window
+      setIsWindowLocked(true);
+      isWindowLockedRef.current = true;
+      await enterFullscreenAndLock();
+      console.log("[Lockdown] 🔒 Locked Exam Mode: Window re-locked.");
+    }
+  }, [exitFullscreenAndUnlock, enterFullscreenAndLock]);
+
   // ── Terminate Interview Handler ───────────────────────────────────────────
   const handleTerminate = useCallback(() => {
     terminatedRef.current = true;
     runningRef.current = false;
+
+    // Immediately release lockdown upon termination
+    try {
+      if ((navigator as any).keyboard?.unlock) (navigator as any).keyboard.unlock();
+      if (document.fullscreenElement) document.exitFullscreen();
+    } catch { /* ignore */ }
+    setIsWindowLocked(false);
+    isWindowLockedRef.current = false;
+    setShowWindowViolationModal(false);
+    setNeedsFullscreenPrompt(false);
 
     // Immediately stop speech synthesis audio
     if ("speechSynthesis" in window) {
@@ -547,6 +634,135 @@ const InterviewRoom = () => {
       }
     };
   }, []);
+
+  // ── Window Lockdown & Anti-Cheat Enforcement Loop ───────────────────────────
+  useEffect(() => {
+    if (!isVerified || terminated || isFinished) {
+      exitFullscreenAndUnlock();
+      return;
+    }
+
+    // Try auto-locking on session start if enabled
+    if (isWindowLocked) {
+      enterFullscreenAndLock();
+    }
+
+    // Fullscreen change listener
+    const handleFullscreenChange = () => {
+      const inFullscreen = !!document.fullscreenElement;
+      setIsFullscreen(inFullscreen);
+      if (!inFullscreen && isWindowLockedRef.current && !terminatedRef.current) {
+        setShowWindowViolationModal(true);
+      }
+    };
+
+    // Tab switch / Window visibility change listener
+    const handleVisibilityChange = () => {
+      if (!isWindowLockedRef.current || terminatedRef.current) return;
+      if (document.visibilityState === "hidden") {
+        setWindowViolationsCount((prev) => {
+          const next = prev + 1;
+          if (next > 3) {
+            handleSecurityTermination(
+              `Interview terminated automatically: Candidate navigated away from the locked interview window ${next} times (exceeded maximum 3 window-switch infractions).`
+            );
+          } else {
+            setShowWindowViolationModal(true);
+          }
+          return next;
+        });
+      }
+    };
+
+    // Window blur listener (candidate clicks outside window / switches applications)
+    const handleWindowBlur = () => {
+      if (!isWindowLockedRef.current || terminatedRef.current) return;
+      setWindowViolationsCount((prev) => {
+        const next = prev + 1;
+        if (next > 3) {
+          handleSecurityTermination(
+            `Interview terminated automatically: Candidate switched focus away from the locked interview window ${next} times (exceeded maximum 3 window-switch infractions).`
+          );
+        } else {
+          setShowWindowViolationModal(true);
+        }
+        return next;
+      });
+    };
+
+    // Keyboard lockdown listener (prevents Alt+Tab, Esc, Win, F5, F11, F12, Ctrl+W, Ctrl+R, DevTools)
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isWindowLockedRef.current || terminatedRef.current) return;
+
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+
+      if (e.key === "Meta" || e.metaKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+
+      if (e.altKey && ["Tab", "F4", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && ["w", "t", "n", "r", "q"].includes(e.key.toLowerCase())) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+
+      if (["F5", "F11", "F12"].includes(e.key)) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && ["I", "J", "C"].includes(e.key.toUpperCase())) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+    };
+
+    // Block right-click context menu (inspect element)
+    const handleContextMenu = (e: MouseEvent) => {
+      if (isWindowLockedRef.current && !terminatedRef.current) {
+        e.preventDefault();
+      }
+    };
+
+    // Block tab/window close
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isWindowLockedRef.current && !terminatedRef.current) {
+        e.preventDefault();
+        e.returnValue = "An active proctored interview is in progress. Exiting will cancel and invalidate your session!";
+        return e.returnValue;
+      }
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("blur", handleWindowBlur);
+    window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("contextmenu", handleContextMenu);
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("blur", handleWindowBlur);
+      window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("contextmenu", handleContextMenu);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [isVerified, terminated, isFinished, enterFullscreenAndLock, exitFullscreenAndUnlock, handleSecurityTermination]);
 
   // ── Continuous Background Face Proctoring Loop ─────────────────────────────
   // Ultra-stable proctoring rules:
@@ -977,6 +1193,11 @@ const InterviewRoom = () => {
     if (!terminatedRef.current) {
       setIsFinished(true);
       runningRef.current = false;
+      exitFullscreenAndUnlock();
+      setIsWindowLocked(false);
+      isWindowLockedRef.current = false;
+      setShowWindowViolationModal(false);
+      setNeedsFullscreenPrompt(false);
     }
   }, [respondToCandidate, computeFinalScore, isTerminated, state.applicationId]);
 
@@ -1028,6 +1249,7 @@ const InterviewRoom = () => {
           console.log("[InterviewRoom] ✅ Biometric Face verified! Initializing session.");
           verifiedDescriptorRef.current = descriptor;
           setIsVerified(true);
+          enterFullscreenAndLock();
         }}
         onFailed={() => {
           navigate("/candidate/dashboard");
@@ -1231,6 +1453,21 @@ const InterviewRoom = () => {
               <span className="text-xs text-amber-400">Follow-up {followupCount}/{MAX_FOLLOWUPS}</span>
             </div>
           )}
+          {/* Window Lockdown status badge */}
+          <div className={`glass-panel px-3 py-1.5 flex items-center gap-1.5 ${isWindowLocked ? "border-emerald-500/40 text-emerald-400" : "border-amber-500/40 text-amber-400"}`}>
+            {isWindowLocked ? (
+              <>
+                <Lock className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="text-xs font-semibold tracking-wider">WINDOW LOCKED</span>
+              </>
+            ) : (
+              <>
+                <Unlock className="w-3.5 h-3.5 text-amber-400" />
+                <span className="text-xs font-semibold tracking-wider">DEV UNLOCKED</span>
+              </>
+            )}
+          </div>
+
           <button
             onClick={handleTerminate}
             className="p-2 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive hover:bg-destructive/20 transition-all cursor-pointer"
@@ -1528,6 +1765,127 @@ const InterviewRoom = () => {
             <div className="flex items-center justify-center gap-2 text-xs text-primary font-medium animate-pulse pt-1">
               <RefreshCw className="w-3.5 h-3.5 animate-spin" />
               <span>Scanning camera feed... interview will resume once verified face is restored</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── DEV MODE: WINDOW LOCK CONTROL (Bottom Center Bar) ── */}
+      <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 p-1.5 px-3 rounded-full bg-black/85 backdrop-blur-md border border-border/60 shadow-2xl transition-all">
+        <div className="flex items-center gap-1.5 text-[11px] font-mono pr-2.5 border-r border-border/40">
+          <span className={`w-2 h-2 rounded-full ${isWindowLocked ? "bg-emerald-400 animate-pulse" : "bg-amber-400"}`} />
+          <span className="text-muted-foreground font-semibold">DEV MODE</span>
+        </div>
+
+        {isWindowLocked ? (
+          <button
+            onClick={toggleDevModeLock}
+            className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 text-xs font-semibold transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-sm"
+            title="Dev Mode: Click to unlock window and disable kiosk lockdown"
+          >
+            <Unlock className="w-3.5 h-3.5 text-amber-400" />
+            <span>Unlock Window</span>
+          </button>
+        ) : (
+          <button
+            onClick={toggleDevModeLock}
+            className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 text-xs font-semibold transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-sm"
+            title="Dev Mode: Click to re-engage locked exam mode"
+          >
+            <Lock className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Re-lock Window</span>
+          </button>
+        )}
+
+        <span className="text-[10px] text-muted-foreground/80 hidden sm:inline pl-1">
+          {isWindowLocked ? "🔒 Window Locked (Anti-cheat Active)" : "🔓 Unlocked for Developer Mode"}
+        </span>
+      </div>
+
+      {/* ── FULLSCREEN PERMISSION PROMPT MODAL ── */}
+      {needsFullscreenPrompt && isWindowLocked && !terminated && !isFinished && (
+        <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="max-w-md w-full bg-card border-2 border-primary/50 rounded-2xl p-6 text-center space-y-4 shadow-2xl animate-in fade-in zoom-in-95">
+            <div className="w-16 h-16 rounded-full bg-primary/10 border border-primary/40 flex items-center justify-center mx-auto">
+              <Lock className="w-8 h-8 text-primary animate-pulse" />
+            </div>
+            <div>
+              <span className="inline-block px-3 py-1 rounded-full text-[11px] font-bold tracking-wider uppercase bg-primary/10 border border-primary/30 text-primary mb-2">
+                EXAM LOCKDOWN PROTOCOL
+              </span>
+              <h2 className="text-xl font-bold text-foreground">Locked Fullscreen Mode Required</h2>
+              <p className="text-xs text-muted-foreground mt-1">
+                To prevent cheating and ensure assessment integrity, the interview window must run locked in full-screen until completion.
+              </p>
+            </div>
+            <div className="p-3.5 rounded-xl bg-muted/30 border border-border/40 text-xs text-muted-foreground text-left space-y-1.5">
+              <p className="font-semibold text-foreground">Anti-Cheat Rules Enforced:</p>
+              <ul className="list-disc pl-4 space-y-1 text-[11px]">
+                <li>Exiting the window or switching tabs is strictly forbidden.</li>
+                <li>System shortcuts and right-click inspect are disabled.</li>
+                <li>A developer unlock toggle is available at the bottom.</li>
+              </ul>
+            </div>
+            <div className="flex flex-col gap-2 pt-2">
+              <button
+                onClick={enterFullscreenAndLock}
+                className="w-full py-3 rounded-xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-primary/25"
+              >
+                <Maximize2 className="w-4 h-4" />
+                <span>Enter Locked Fullscreen Mode</span>
+              </button>
+              <button
+                onClick={toggleDevModeLock}
+                className="text-xs text-muted-foreground hover:text-amber-400 py-1.5 transition-colors cursor-pointer"
+              >
+                Continue in Unlocked Mode (Dev Only)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── WINDOW LOCK VIOLATION WARNING MODAL ── */}
+      {showWindowViolationModal && isWindowLocked && !terminated && !isFinished && !needsFullscreenPrompt && (
+        <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="max-w-md w-full bg-card border-2 border-rose-500/60 rounded-2xl p-6 text-center space-y-4 shadow-2xl animate-in fade-in zoom-in-95">
+            <div className="w-16 h-16 rounded-full bg-rose-500/10 border border-rose-500/40 flex items-center justify-center mx-auto animate-pulse">
+              <AlertTriangle className="w-8 h-8 text-rose-500" />
+            </div>
+            <div>
+              <span className="inline-block px-3 py-1 rounded-full text-[11px] font-bold tracking-wider uppercase bg-rose-500/10 border border-rose-500/30 text-rose-400 mb-2">
+                WINDOW LOCK VIOLATION DETECTED
+              </span>
+              <h2 className="text-xl font-bold text-foreground">Window Left or Fullscreen Exited</h2>
+              <p className="text-xs text-muted-foreground mt-1">
+                You are prohibited from switching tabs, minimizing, or exiting the locked interview window.
+              </p>
+            </div>
+            <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/25 text-xs text-left space-y-2">
+              <div className="flex items-center justify-between font-semibold text-rose-300">
+                <span>Window Lock Infractions</span>
+                <span className="font-mono text-xs px-2.5 py-0.5 rounded bg-rose-500/20 border border-rose-500/40 font-bold">
+                  {windowViolationsCount} / 3 Allowed
+                </span>
+              </div>
+              <p className="text-[11px] text-rose-200/80">
+                ⚠️ Exceeding 3 window violations will result in automatic session termination.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 pt-2">
+              <button
+                onClick={enterFullscreenAndLock}
+                className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-semibold text-sm transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/25"
+              >
+                <Maximize2 className="w-4 h-4" />
+                <span>Return to Locked Fullscreen</span>
+              </button>
+              <button
+                onClick={toggleDevModeLock}
+                className="text-xs text-muted-foreground hover:text-amber-400 py-1.5 transition-colors cursor-pointer"
+              >
+                Unlock Window (Dev Mode)
+              </button>
             </div>
           </div>
         </div>
