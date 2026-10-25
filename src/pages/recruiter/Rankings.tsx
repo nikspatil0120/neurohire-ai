@@ -603,7 +603,7 @@ The ${companyName} Team`
 
       // For selection emails without edits and no attachments, use the template endpoint
       if (emailAction === 'selected' && !isEdited && attachmentData.length === 0) {
-        const response = await fetch('http://localhost:5000/api/email/selection', {
+        const response = await fetch(`${API}/email/selection`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -658,7 +658,7 @@ The ${companyName} Team`
         console.log('  - Text length:', emailContent.length);
         console.log('  - Attachments:', attachmentData.length);
 
-        const response = await fetch('http://localhost:5000/api/email/custom', {
+        const response = await fetch(`${API}/email/custom`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

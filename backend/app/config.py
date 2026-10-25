@@ -43,7 +43,7 @@ class Settings(BaseSettings):
 
     # Email Service
     BREVO_API_KEY: str = ""
-    EMAIL_SERVICE_URL: str = "http://localhost:5000/api/email"
+    EMAIL_SERVICE_URL: str = "http://localhost:8000/api/v1/email"
     SENDER_EMAIL: str = "neurohireaiplatform@gmail.com"
     SENDER_NAME: str = "NeuroHire AI"
     

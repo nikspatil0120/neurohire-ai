@@ -417,11 +417,18 @@ const InterviewRoom = () => {
   const [windowExitCountdown,       setWindowExitCountdown]       = useState<number | null>(null);
   const isWindowLockedRef           = useRef(true);
   const windowExitStartTimeRef      = useRef<number | null>(null);
+  const needsFullscreenPromptRef    = useRef(false);
+  const hasEnteredFullscreenOnceRef = useRef(false);
+  const isTransitioningRef          = useRef(false);
 
-  // Keep window lock ref synchronized
+  // Keep window lock & prompt refs synchronized
   useEffect(() => {
     isWindowLockedRef.current = isWindowLocked;
   }, [isWindowLocked]);
+
+  useEffect(() => {
+    needsFullscreenPromptRef.current = needsFullscreenPrompt;
+  }, [needsFullscreenPrompt]);
 
   // ── Refs ──────────────────────────────────────────────────────────────────
   const transcriptRef               = useRef<TranscriptItem[]>([]);
@@ -585,6 +592,14 @@ const InterviewRoom = () => {
 
   // ── Window Lockdown & Fullscreen Controls ─────────────────────────────────
   const enterFullscreenAndLock = useCallback(async () => {
+    // Immediately clear any active violation countdown & transition safely
+    windowExitStartTimeRef.current = null;
+    setWindowExitCountdown(null);
+    setShowWindowViolationModal(false);
+    setNeedsFullscreenPrompt(false);
+    needsFullscreenPromptRef.current = false;
+    isTransitioningRef.current = true;
+
     try {
       const elem = document.documentElement as any;
       if (!document.fullscreenElement) {
@@ -597,8 +612,7 @@ const InterviewRoom = () => {
         }
       }
       setIsFullscreen(true);
-      setNeedsFullscreenPrompt(false);
-      setShowWindowViolationModal(false);
+      hasEnteredFullscreenOnceRef.current = true;
 
       // Keyboard Lock API (Locks Escape, Alt, Tab, Windows keys in modern Chromium browsers)
       if ((navigator as any).keyboard?.lock) {
@@ -610,7 +624,16 @@ const InterviewRoom = () => {
       console.warn("[Lockdown] Fullscreen request prevented by browser policy (user gesture required):", err);
       if (isWindowLockedRef.current) {
         setNeedsFullscreenPrompt(true);
+        needsFullscreenPromptRef.current = true;
       }
+    } finally {
+      // 1.5s grace period for browser window resize, focus switch, and native alerts to settle
+      setTimeout(() => {
+        isTransitioningRef.current = false;
+        if (document.fullscreenElement) {
+          hasEnteredFullscreenOnceRef.current = true;
+        }
+      }, 1500);
     }
   }, []);
 
@@ -636,6 +659,9 @@ const InterviewRoom = () => {
       await exitFullscreenAndUnlock();
       setShowWindowViolationModal(false);
       setNeedsFullscreenPrompt(false);
+      needsFullscreenPromptRef.current = false;
+      hasEnteredFullscreenOnceRef.current = false;
+      isTransitioningRef.current = false;
       windowExitStartTimeRef.current = null;
       setWindowExitCountdown(null);
       console.log("[Lockdown] 🔓 Developer Mode: Window unlocked.");
@@ -740,7 +766,18 @@ const InterviewRoom = () => {
 
     // Core validation check: If tab hidden OR not in fullscreen -> 5-second countdown to termination
     const checkWindowSecurity = () => {
-      if (!isWindowLockedRef.current || terminatedRef.current) {
+      // Do not treat as violation if:
+      // 1. Lockdown is disabled (dev mode) or session terminated
+      // 2. Candidate is looking at the initial fullscreen prompt (needsFullscreenPrompt)
+      // 3. Browser is actively transitioning into/out of fullscreen (grace period)
+      // 4. Candidate has not yet entered fullscreen for the first time
+      if (
+        !isWindowLockedRef.current ||
+        terminatedRef.current ||
+        needsFullscreenPromptRef.current ||
+        isTransitioningRef.current ||
+        !hasEnteredFullscreenOnceRef.current
+      ) {
         if (windowExitStartTimeRef.current !== null) {
           windowExitStartTimeRef.current = null;
           setWindowExitCountdown(null);
@@ -786,6 +823,12 @@ const InterviewRoom = () => {
     const handleFullscreenChange = () => {
       const inFullscreen = !!document.fullscreenElement;
       setIsFullscreen(inFullscreen);
+      if (inFullscreen) {
+        hasEnteredFullscreenOnceRef.current = true;
+        windowExitStartTimeRef.current = null;
+        setWindowExitCountdown(null);
+        setShowWindowViolationModal(false);
+      }
       checkWindowSecurity();
     };
 
@@ -796,10 +839,17 @@ const InterviewRoom = () => {
 
     // Window blur & focus listeners
     const handleWindowBlur = () => {
+      // If candidate is actively transitioning into/out of fullscreen, ignore blur
+      if (isTransitioningRef.current) return;
       checkWindowSecurity();
     };
 
     const handleWindowFocus = () => {
+      if (document.fullscreenElement && !document.hidden) {
+        windowExitStartTimeRef.current = null;
+        setWindowExitCountdown(null);
+        setShowWindowViolationModal(false);
+      }
       checkWindowSecurity();
     };
 
@@ -1410,9 +1460,13 @@ const InterviewRoom = () => {
   // Start when questions are ready AND identity has been verified
   useEffect(() => {
     if (isVerified && questions.length > 0 && !runningRef.current && !terminatedRef.current) {
+      if (isWindowLocked && needsFullscreenPrompt) {
+        // Wait until candidate accepts the locked fullscreen prompt before starting speech
+        return;
+      }
       runInterview(questions);
     }
-  }, [isVerified, questions, runInterview]);
+  }, [isVerified, questions, runInterview, isWindowLocked, needsFullscreenPrompt]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // NO QUESTIONS / DIRECT ACCESS SCREEN
@@ -1483,20 +1537,81 @@ const InterviewRoom = () => {
           <p className="text-sm text-foreground/90 font-medium mb-3">
             {securityTerminationReason || "Session has been terminated. All recording and evaluation services have been stopped."}
           </p>
-          {securityTerminated && (
-            <div className="mb-6 p-4 rounded-xl bg-destructive/10 border border-destructive/30 text-xs text-destructive text-left space-y-2">
-              <div className="font-semibold flex items-center gap-1.5 text-sm">
-                <AlertOctagon className="w-4 h-4 text-destructive" /> Automated Proctoring Rule Exceeded
+          {securityTerminated && (() => {
+            const reason = securityTerminationReason.toLowerCase();
+            const isLockdownViolation = reason.includes("full-screen") || reason.includes("tabs") || reason.includes("switched");
+            const isOutOfCameraViolation = reason.includes("out of camera");
+            const isFaceViolation = reason.includes("unauthorized face") || reason.includes("multiple faces") || faceViolationsCount > 0;
+
+            if (isLockdownViolation) {
+              return (
+                <div className="mb-6 p-4 rounded-xl bg-destructive/10 border border-destructive/30 text-xs text-destructive text-left space-y-2">
+                  <div className="font-semibold flex items-center gap-1.5 text-sm">
+                    <Lock className="w-4 h-4 text-destructive" /> Exam Lockdown Policy Violation
+                  </div>
+                  <p>
+                    The interview was terminated because the full-screen exam window was exited or the browser tab was switched for more than 5 seconds without returning.
+                  </p>
+                  <p className="text-[11px] text-destructive/80">
+                    Strict Anti-Cheat Rule: All assessment sessions must be completed inside the uninterrupted, locked full-screen window.
+                  </p>
+                  <div className="text-[11px] text-muted-foreground pt-1 border-t border-destructive/20">
+                    Timestamp: {new Date().toLocaleTimeString()} · Window Lockdown Protocol Enforced
+                  </div>
+                </div>
+              );
+            }
+
+            if (isOutOfCameraViolation) {
+              return (
+                <div className="mb-6 p-4 rounded-xl bg-destructive/10 border border-destructive/30 text-xs text-destructive text-left space-y-2">
+                  <div className="font-semibold flex items-center gap-1.5 text-sm">
+                    <AlertTriangle className="w-4 h-4 text-destructive" /> Candidate Out of Camera Frame
+                  </div>
+                  <p>
+                    The interview was terminated because the candidate was completely absent from the webcam view for more than 5 seconds without returning.
+                  </p>
+                  <p className="text-[11px] text-destructive/80">
+                    Proctoring Rule: Continuous webcam visual presence is required throughout the entire interview session.
+                  </p>
+                  <div className="text-[11px] text-muted-foreground pt-1 border-t border-destructive/20">
+                    Timestamp: {new Date().toLocaleTimeString()} · Continuous Candidate Presence Monitored
+                  </div>
+                </div>
+              );
+            }
+
+            if (isFaceViolation) {
+              return (
+                <div className="mb-6 p-4 rounded-xl bg-destructive/10 border border-destructive/30 text-xs text-destructive text-left space-y-2">
+                  <div className="font-semibold flex items-center gap-1.5 text-sm">
+                    <AlertOctagon className="w-4 h-4 text-destructive" /> Biometric Proctoring Rule Exceeded
+                  </div>
+                  <p>
+                    An unauthorized face or secondary person was detected <strong>{faceViolationsCount} times</strong> during this session.
+                    Per examination integrity policy, more than 2 violations result in mandatory termination.
+                  </p>
+                  <div className="text-[11px] text-muted-foreground pt-1 border-t border-destructive/20">
+                    Timestamp: {new Date().toLocaleTimeString()} · Candidate Biometrics Enforced
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <div className="mb-6 p-4 rounded-xl bg-destructive/10 border border-destructive/30 text-xs text-destructive text-left space-y-2">
+                <div className="font-semibold flex items-center gap-1.5 text-sm">
+                  <AlertOctagon className="w-4 h-4 text-destructive" /> Automated Proctoring Rule Exceeded
+                </div>
+                <p>
+                  {securityTerminationReason || "A security integrity policy violation was detected during this proctored interview session."}
+                </p>
+                <div className="text-[11px] text-muted-foreground pt-1 border-t border-destructive/20">
+                  Timestamp: {new Date().toLocaleTimeString()} · Examination Integrity Enforced
+                </div>
               </div>
-              <p>
-                An unauthorized face or secondary person was detected <strong>{faceViolationsCount} times</strong> during this session.
-                Per examination integrity policy, more than 2 violations result in mandatory termination.
-              </p>
-              <div className="text-[11px] text-muted-foreground pt-1 border-t border-destructive/20">
-                Timestamp: {new Date().toLocaleTimeString()} · Candidate Biometrics Enforced
-              </div>
-            </div>
-          )}
+            );
+          })()}
           <div className="flex gap-3 justify-center">
             <Link
               to="/candidate/practice"
