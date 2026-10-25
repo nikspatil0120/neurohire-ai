@@ -403,7 +403,9 @@ const InterviewRoom = () => {
   const [windowViolationsCount,     setWindowViolationsCount]     = useState(0);
   const [showWindowViolationModal,  setShowWindowViolationModal]  = useState(false);
   const [needsFullscreenPrompt,     setNeedsFullscreenPrompt]     = useState(false);
+  const [windowExitCountdown,       setWindowExitCountdown]       = useState<number | null>(null);
   const isWindowLockedRef           = useRef(true);
+  const windowExitStartTimeRef      = useRef<number | null>(null);
 
   // Keep window lock ref synchronized
   useEffect(() => {
@@ -551,6 +553,8 @@ const InterviewRoom = () => {
       await exitFullscreenAndUnlock();
       setShowWindowViolationModal(false);
       setNeedsFullscreenPrompt(false);
+      windowExitStartTimeRef.current = null;
+      setWindowExitCountdown(null);
       console.log("[Lockdown] 🔓 Developer Mode: Window unlocked.");
     } else {
       // Dev mode: re-lock window
@@ -575,6 +579,8 @@ const InterviewRoom = () => {
     isWindowLockedRef.current = false;
     setShowWindowViolationModal(false);
     setNeedsFullscreenPrompt(false);
+    windowExitStartTimeRef.current = null;
+    setWindowExitCountdown(null);
 
     // Immediately stop speech synthesis audio
     if ("speechSynthesis" in window) {
@@ -635,10 +641,12 @@ const InterviewRoom = () => {
     };
   }, []);
 
-  // ── Window Lockdown & Anti-Cheat Enforcement Loop ───────────────────────────
+  // ── Window Lockdown & Anti-Cheat Enforcement Loop (5s Auto-Termination) ──────
   useEffect(() => {
     if (!isVerified || terminated || isFinished) {
       exitFullscreenAndUnlock();
+      windowExitStartTimeRef.current = null;
+      setWindowExitCountdown(null);
       return;
     }
 
@@ -647,48 +655,73 @@ const InterviewRoom = () => {
       enterFullscreenAndLock();
     }
 
+    // Core validation check: If tab hidden OR not in fullscreen -> 5-second countdown to termination
+    const checkWindowSecurity = () => {
+      if (!isWindowLockedRef.current || terminatedRef.current) {
+        if (windowExitStartTimeRef.current !== null) {
+          windowExitStartTimeRef.current = null;
+          setWindowExitCountdown(null);
+        }
+        return;
+      }
+
+      const isViolating = document.hidden || !document.fullscreenElement;
+
+      if (isViolating) {
+        if (windowExitStartTimeRef.current === null) {
+          windowExitStartTimeRef.current = Date.now();
+          setWindowExitCountdown(5);
+          setShowWindowViolationModal(true);
+          try { window.speechSynthesis.cancel(); } catch { /* ignore */ }
+        }
+
+        const elapsedSecs = (Date.now() - windowExitStartTimeRef.current) / 1000;
+        const remainingSecs = Math.max(0, Math.ceil(5 - elapsedSecs));
+        setWindowExitCountdown(remainingSecs);
+
+        if (elapsedSecs >= 5) {
+          console.warn("[Lockdown] Candidate exited window / full-screen for > 5 seconds. Terminating interview.");
+          windowExitStartTimeRef.current = null;
+          setWindowExitCountdown(null);
+          setShowWindowViolationModal(false);
+          handleSecurityTermination(
+            "Interview terminated automatically: Candidate switched tabs or exited full-screen mode for more than 5 seconds."
+          );
+        }
+      } else {
+        // Candidate is back inside locked full-screen window within the 5 seconds!
+        if (windowExitStartTimeRef.current !== null) {
+          console.log("[Lockdown] Candidate returned to locked fullscreen window within 5 seconds! Resuming interview.");
+          windowExitStartTimeRef.current = null;
+          setWindowExitCountdown(null);
+          setShowWindowViolationModal(false);
+        }
+      }
+    };
+
     // Fullscreen change listener
     const handleFullscreenChange = () => {
       const inFullscreen = !!document.fullscreenElement;
       setIsFullscreen(inFullscreen);
-      if (!inFullscreen && isWindowLockedRef.current && !terminatedRef.current) {
-        setShowWindowViolationModal(true);
-      }
+      checkWindowSecurity();
     };
 
     // Tab switch / Window visibility change listener
     const handleVisibilityChange = () => {
-      if (!isWindowLockedRef.current || terminatedRef.current) return;
-      if (document.visibilityState === "hidden") {
-        setWindowViolationsCount((prev) => {
-          const next = prev + 1;
-          if (next > 3) {
-            handleSecurityTermination(
-              `Interview terminated automatically: Candidate navigated away from the locked interview window ${next} times (exceeded maximum 3 window-switch infractions).`
-            );
-          } else {
-            setShowWindowViolationModal(true);
-          }
-          return next;
-        });
-      }
+      checkWindowSecurity();
     };
 
-    // Window blur listener (candidate clicks outside window / switches applications)
+    // Window blur & focus listeners
     const handleWindowBlur = () => {
-      if (!isWindowLockedRef.current || terminatedRef.current) return;
-      setWindowViolationsCount((prev) => {
-        const next = prev + 1;
-        if (next > 3) {
-          handleSecurityTermination(
-            `Interview terminated automatically: Candidate switched focus away from the locked interview window ${next} times (exceeded maximum 3 window-switch infractions).`
-          );
-        } else {
-          setShowWindowViolationModal(true);
-        }
-        return next;
-      });
+      checkWindowSecurity();
     };
+
+    const handleWindowFocus = () => {
+      checkWindowSecurity();
+    };
+
+    // 250ms periodic ticker ensuring exact countdown and termination even if backgrounded
+    const countdownTicker = setInterval(checkWindowSecurity, 250);
 
     // Keyboard lockdown listener (prevents Alt+Tab, Esc, Win, F5, F11, F12, Ctrl+W, Ctrl+R, DevTools)
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -750,14 +783,17 @@ const InterviewRoom = () => {
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("blur", handleWindowBlur);
+    window.addEventListener("focus", handleWindowFocus);
     window.addEventListener("keydown", handleKeyDown, true);
     window.addEventListener("contextmenu", handleContextMenu);
     window.addEventListener("beforeunload", handleBeforeUnload);
 
     return () => {
+      clearInterval(countdownTicker);
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("blur", handleWindowBlur);
+      window.removeEventListener("focus", handleWindowFocus);
       window.removeEventListener("keydown", handleKeyDown, true);
       window.removeEventListener("contextmenu", handleContextMenu);
       window.removeEventListener("beforeunload", handleBeforeUnload);
@@ -1845,37 +1881,43 @@ const InterviewRoom = () => {
         </div>
       )}
 
-      {/* ── WINDOW LOCK VIOLATION WARNING MODAL ── */}
+      {/* ── WINDOW LOCK VIOLATION / 5-SECOND TERMINATION WARNING MODAL ── */}
       {showWindowViolationModal && isWindowLocked && !terminated && !isFinished && !needsFullscreenPrompt && (
         <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="max-w-md w-full bg-card border-2 border-rose-500/60 rounded-2xl p-6 text-center space-y-4 shadow-2xl animate-in fade-in zoom-in-95">
-            <div className="w-16 h-16 rounded-full bg-rose-500/10 border border-rose-500/40 flex items-center justify-center mx-auto animate-pulse">
-              <AlertTriangle className="w-8 h-8 text-rose-500" />
-            </div>
-            <div>
-              <span className="inline-block px-3 py-1 rounded-full text-[11px] font-bold tracking-wider uppercase bg-rose-500/10 border border-rose-500/30 text-rose-400 mb-2">
-                WINDOW LOCK VIOLATION DETECTED
-              </span>
-              <h2 className="text-xl font-bold text-foreground">Window Left or Fullscreen Exited</h2>
-              <p className="text-xs text-muted-foreground mt-1">
-                You are prohibited from switching tabs, minimizing, or exiting the locked interview window.
-              </p>
-            </div>
-            <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/25 text-xs text-left space-y-2">
-              <div className="flex items-center justify-between font-semibold text-rose-300">
-                <span>Window Lock Infractions</span>
-                <span className="font-mono text-xs px-2.5 py-0.5 rounded bg-rose-500/20 border border-rose-500/40 font-bold">
-                  {windowViolationsCount} / 3 Allowed
+          <div className="max-w-md w-full bg-card border-2 border-rose-500/70 rounded-2xl p-6 text-center space-y-4 shadow-2xl animate-in fade-in zoom-in-95">
+            {/* Animated 5s countdown timer badge */}
+            <div className="relative w-24 h-24 mx-auto flex items-center justify-center">
+              <div className="absolute inset-0 rounded-full border-4 border-rose-500/30 animate-ping" />
+              <div className="w-20 h-20 rounded-full bg-rose-500/10 border-2 border-rose-500 flex items-center justify-center shadow-[0_0_25px_rgba(244,63,94,0.5)]">
+                <span className="font-mono text-3xl font-extrabold text-rose-400">
+                  {windowExitCountdown !== null ? windowExitCountdown : 5}s
                 </span>
               </div>
-              <p className="text-[11px] text-rose-200/80">
-                ⚠️ Exceeding 3 window violations will result in automatic session termination.
+            </div>
+
+            <div>
+              <span className="inline-block px-3 py-1 rounded-full text-[11px] font-bold tracking-wider uppercase bg-rose-500/10 border border-rose-500/30 text-rose-400 mb-2">
+                WINDOW SWITCH / FULLSCREEN LOST · 5s AUTO-TERMINATION
+              </span>
+              <h2 className="text-xl font-bold text-foreground">Return to Locked Fullscreen Immediately</h2>
+              <p className="text-xs text-muted-foreground mt-1">
+                You switched tabs, minimized, or exited full-screen. Return within{" "}
+                <strong className="text-rose-400 font-mono text-sm">{windowExitCountdown !== null ? windowExitCountdown : 5} seconds</strong>{" "}
+                or this interview will be terminated permanently.
               </p>
             </div>
+
+            <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/25 text-xs text-left space-y-1.5">
+              <p className="font-semibold text-rose-200">⚠️ Strict Examination Policy:</p>
+              <p className="text-[11px] text-rose-200/90 leading-relaxed">
+                Candidates must remain in the locked full-screen interview window at all times. Switching to other tabs or applications is strictly prohibited.
+              </p>
+            </div>
+
             <div className="flex flex-col gap-2 pt-2">
               <button
                 onClick={enterFullscreenAndLock}
-                className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-semibold text-sm transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/25"
+                className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-semibold text-sm transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/25 animate-pulse"
               >
                 <Maximize2 className="w-4 h-4" />
                 <span>Return to Locked Fullscreen</span>
