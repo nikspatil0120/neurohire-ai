@@ -8,6 +8,7 @@ import ProctoringDebugPanel from "@/components/ProctoringDebugPanel";
 import { useFaceAnalysis } from "@/hooks/useFaceAnalysis";
 import { useProctoringMonitor } from "@/hooks/useProctoringMonitor";
 import { useCandidateSignals } from "@/hooks/useCandidateSignals";
+import {
   Brain, Camera, Clock, AlertTriangle, Mic, MicOff, BarChart3,
   TrendingUp, X, Volume2, ArrowLeft, RefreshCw, CheckCircle2, Send, ShieldOff,
   Shield, ShieldAlert, AlertOctagon, UserCheck, Sparkles,
