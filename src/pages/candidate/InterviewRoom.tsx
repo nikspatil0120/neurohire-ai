@@ -779,7 +779,7 @@ const InterviewRoom = () => {
 
         {/* AI interviewer avatar + question - LEFT */}
         <div className="flex flex-col gap-4">
-          <GlassCard variant="neon" hover={false} className="flex-1 overflow-hidden p-0 relative min-h-[260px] max-h-[380px]">
+          <GlassCard variant="neon" hover={false} className="aspect-video overflow-hidden p-0 relative">
             <InterviewerAvatar mode={aiMode} questionText={currentQuestion} />
           </GlassCard>
 
@@ -816,7 +816,7 @@ const InterviewRoom = () => {
 
         {/* Candidate camera + live transcript - RIGHT */}
         <div className="flex flex-col gap-4">
-          <GlassCard variant="neon" hover={false} className="flex-1 flex items-center justify-center relative min-h-[220px] overflow-hidden p-0">
+          <GlassCard variant="neon" hover={false} className="aspect-video flex items-center justify-center relative overflow-hidden p-0">
             <CandidateCamera enabled={!terminated} />
             <div className="absolute top-4 right-4 z-10 flex items-center gap-2 bg-black/60 px-2 py-1 rounded-full backdrop-blur-sm">
               <div className="w-2 h-2 rounded-full bg-destructive animate-glow-pulse" />
