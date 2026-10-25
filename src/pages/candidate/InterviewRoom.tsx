@@ -5,8 +5,8 @@ import WaveformAnimation from "@/components/WaveformAnimation";
 import { CandidateCamera } from "@/components/CandidateCamera";
 import { InterviewerAvatar } from "@/components/InterviewerAvatar";
 import {
-  Brain, Camera, Clock, AlertTriangle, Mic, BarChart3,
-  TrendingUp, X, Volume2, ArrowLeft, RefreshCw, CheckCircle2,
+  Brain, Camera, Clock, AlertTriangle, Mic, MicOff, BarChart3,
+  TrendingUp, X, Volume2, ArrowLeft, RefreshCw, CheckCircle2, Send,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -128,90 +128,205 @@ function speak(text: string, isTerminated: () => boolean): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STT helper (with termination check & active recognition ref)
+// Audio Transcription via Groq Whisper (Universal fallback for Brave/Privacy browsers)
+// ─────────────────────────────────────────────────────────────────────────────
+async function transcribeAudioBlob(blob: Blob): Promise<string> {
+  if (!blob || blob.size < 500) return "";
+  try {
+    const formData = new FormData();
+    formData.append("file", blob, "speech.webm");
+    const res = await fetch(`${API}/interview-ai/transcribe-audio`, {
+      method: "POST",
+      body: formData,
+    });
+    if (!res.ok) return "";
+    const data = await res.json();
+    return (data.text || "").trim();
+  } catch (err) {
+    console.warn("Whisper transcription failed:", err);
+    return "";
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STT helper (SpeechRecognition + MediaRecorder Whisper AI + Manual Input)
 // ─────────────────────────────────────────────────────────────────────────────
 function listenForAnswer(
   onInterim: (text: string) => void,
   onCountdown: (sec: number) => void,
   isTerminated: () => boolean,
   setActiveRecognition: (rec: any) => void,
+  registerSubmit: (submitFn: () => void) => void,
+  getCurrentManualText: () => string,
+  mediaStream: MediaStream | null,
 ): Promise<string> {
-  return new Promise((resolve) => {
+  return new Promise(async (resolve) => {
     if (isTerminated()) { resolve(""); return; }
 
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) { resolve(""); return; }
 
     let finalText = "";
     let interimText = "";
     let finished = false;
     let lastSpeech = Date.now();
     let interval: ReturnType<typeof setInterval>;
+    let recognition: any = null;
+    let mediaRecorder: MediaRecorder | null = null;
+    let audioChunks: Blob[] = [];
 
-    function currentText() { return (finalText + " " + interimText).trim(); }
+    // Setup MediaRecorder for universal STT (Brave, Chrome, Firefox, Safari)
+    if (mediaStream && typeof MediaRecorder !== "undefined") {
+      try {
+        const audioTracks = mediaStream.getAudioTracks();
+        if (audioTracks.length > 0) {
+          const audioOnlyStream = new MediaStream([audioTracks[0]]);
+          let mime = "";
+          if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) mime = "audio/webm;codecs=opus";
+          else if (MediaRecorder.isTypeSupported("audio/webm")) mime = "audio/webm";
+          else if (MediaRecorder.isTypeSupported("audio/mp4")) mime = "audio/mp4";
 
-    function finalize() {
+          mediaRecorder = new MediaRecorder(audioOnlyStream, mime ? { mimeType: mime } : undefined);
+          mediaRecorder.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) {
+              audioChunks.push(e.data);
+            }
+          };
+          mediaRecorder.start(400); // 400ms slices
+        }
+      } catch (recErr) {
+        console.warn("MediaRecorder init notice:", recErr);
+      }
+    }
+
+    function currentText() {
+      const manual = getCurrentManualText().trim();
+      const stt = (finalText + " " + interimText).trim();
+      return manual || stt;
+    }
+
+    async function finalize() {
       if (finished) return;
       finished = true;
       clearInterval(interval);
       setActiveRecognition(null);
-      try {
-        recognition.onend = null;
-        recognition.onerror = null;
-        recognition.onresult = null;
-        recognition.stop();
-        recognition.abort();
-      } catch { /* ignore */ }
-      resolve(currentText());
+
+      if (recognition) {
+        try {
+          recognition.onend = null;
+          recognition.onerror = null;
+          recognition.onresult = null;
+          recognition.stop();
+          recognition.abort();
+        } catch { /* ignore */ }
+      }
+
+      let text = currentText();
+
+      // If text is still empty, transcribe the recorded audio via Groq Whisper
+      if (!text && mediaRecorder && audioChunks.length > 0) {
+        try {
+          if (mediaRecorder.state !== "inactive") {
+            mediaRecorder.stop();
+          }
+          await new Promise((r) => setTimeout(r, 200));
+          const fullBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || "audio/webm" });
+          if (fullBlob.size > 1000) {
+            onInterim("Transcribing your speech via Whisper AI…");
+            const whisperResult = await transcribeAudioBlob(fullBlob);
+            if (whisperResult) {
+              text = whisperResult;
+              onInterim(whisperResult);
+            }
+          }
+        } catch (whisperErr) {
+          console.warn("Whisper finalize error:", whisperErr);
+        }
+      } else if (mediaRecorder && mediaRecorder.state !== "inactive") {
+        try { mediaRecorder.stop(); } catch { /* ignore */ }
+      }
+
+      resolve(text);
+    }
+
+    // Register submit callback for user's manual "Submit Answer" button
+    registerSubmit(finalize);
+
+    // Periodic Whisper check if browser STT is shielded/blocked (common in Brave)
+    let periodicWhisperTimer: ReturnType<typeof setInterval>;
+    if (mediaRecorder) {
+      periodicWhisperTimer = setInterval(async () => {
+        if (finished || isTerminated()) {
+          clearInterval(periodicWhisperTimer);
+          return;
+        }
+        // If browser STT has not produced any transcript but user has spoken audio:
+        if (!finalText && !interimText && audioChunks.length >= 6) {
+          try {
+            const currentBlob = new Blob([...audioChunks], { type: mediaRecorder?.mimeType || "audio/webm" });
+            const partial = await transcribeAudioBlob(currentBlob);
+            if (partial && !finished && !getCurrentManualText().trim()) {
+              onInterim(partial);
+              lastSpeech = Date.now();
+            }
+          } catch { /* ignore */ }
+        }
+      }, 3500);
     }
 
     function tick() {
       if (isTerminated()) {
+        if (periodicWhisperTimer) clearInterval(periodicWhisperTimer);
         finalize();
         return;
       }
-      onInterim(currentText());
       const remaining = SILENCE_TIMEOUT_MS - (Date.now() - lastSpeech);
       onCountdown(Math.max(0, Math.ceil(remaining / 1000)));
-      if (remaining <= 0) finalize();
-    }
-
-    const recognition = new SR();
-    recognition.lang = "en-US";
-    recognition.continuous = true;
-    recognition.interimResults = true;
-
-    recognition.onresult = (event: any) => {
-      if (isTerminated()) { finalize(); return; }
-      interimText = "";
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const piece = event.results[i][0].transcript;
-        if (event.results[i].isFinal) finalText += piece + " ";
-        else interimText += piece;
-      }
-      lastSpeech = Date.now();
-      onInterim(currentText());
-    };
-
-    recognition.onerror = (event: any) => {
-      if (finished) return;
-      if (event.error === "not-allowed" || event.error === "service-not-allowed" || isTerminated()) {
+      if (remaining <= 0) {
+        if (periodicWhisperTimer) clearInterval(periodicWhisperTimer);
         finalize();
       }
-    };
+    }
 
-    recognition.onend = () => {
-      if (!finished && !isTerminated()) {
-        try { recognition.start(); } catch { /* ignore */ }
+    if (SR) {
+      try {
+        recognition = new SR();
+        recognition.lang = "en-US";
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.maxAlternatives = 1;
+
+        recognition.onresult = (event: any) => {
+          if (isTerminated() || finished) return;
+          interimText = "";
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const piece = event.results[i][0].transcript;
+            if (event.results[i].isFinal) finalText += piece + " ";
+            else interimText += piece;
+          }
+          lastSpeech = Date.now();
+          const combined = (finalText + " " + interimText).trim();
+          onInterim(combined);
+        };
+
+        recognition.onerror = (event: any) => {
+          console.warn("Speech recognition notice:", event.error);
+        };
+
+        recognition.onend = () => {
+          if (!finished && !isTerminated()) {
+            setTimeout(() => {
+              if (!finished && !isTerminated() && recognition) {
+                try { recognition.start(); } catch { /* ignore */ }
+              }
+            }, 150);
+          }
+        };
+
+        recognition.start();
+        setActiveRecognition(recognition);
+      } catch (err) {
+        console.warn("Could not initialize SpeechRecognition:", err);
       }
-    };
-
-    try {
-      recognition.start();
-      setActiveRecognition(recognition);
-    } catch {
-      resolve("");
-      return;
     }
 
     lastSpeech = Date.now();
@@ -261,6 +376,7 @@ const InterviewRoom = () => {
   const [finalResult,      setFinalResult]      = useState<any>(null);
   const [elapsedSec,       setElapsedSec]       = useState(0);
   const [errorMsg,         setErrorMsg]         = useState("");
+  const [audioLevel,       setAudioLevel]       = useState(0);
 
   // ── Refs ──────────────────────────────────────────────────────────────────
   const transcriptRef          = useRef<TranscriptItem[]>([]);
@@ -269,9 +385,52 @@ const InterviewRoom = () => {
   const runningRef             = useRef(false);
   const terminatedRef          = useRef(false);
   const activeRecognitionRef   = useRef<any>(null);
+  const manualAnswerRef        = useRef("");
+  const submitCurrentAnswerRef = useRef<(() => void) | null>(null);
+  const audioContextRef        = useRef<AudioContext | null>(null);
+  const animFrameRef           = useRef<number | null>(null);
+  const mediaStreamRef         = useRef<MediaStream | null>(null);
 
   // Helper function to check termination across all async operations
   const isTerminated = useCallback(() => terminatedRef.current, []);
+
+  // ── Audio Level Meter from Camera/Mic stream ─────────────────────────────
+  const handleMediaStream = useCallback((stream: MediaStream) => {
+    mediaStreamRef.current = stream;
+    const audioTrack = stream.getAudioTracks()[0];
+    if (!audioTrack) return;
+
+    try {
+      if (audioContextRef.current) {
+        try { audioContextRef.current.close(); } catch { /* ignore */ }
+      }
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 128;
+      const source = ctx.createMediaStreamSource(stream);
+      source.connect(analyser);
+
+      audioContextRef.current = ctx;
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+      const updateLevel = () => {
+        if (terminatedRef.current) return;
+        analyser.getByteFrequencyData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) {
+          sum += dataArray[i];
+        }
+        const avg = sum / dataArray.length;
+        setAudioLevel(Math.min(100, Math.round((avg / 128) * 100)));
+        animFrameRef.current = requestAnimationFrame(updateLevel);
+      };
+      updateLevel();
+    } catch (e) {
+      console.warn("AudioContext visualizer error:", e);
+    }
+  }, []);
 
   // ── Terminate Interview Handler ───────────────────────────────────────────
   const handleTerminate = useCallback(() => {
@@ -296,6 +455,11 @@ const InterviewRoom = () => {
       activeRecognitionRef.current = null;
     }
 
+    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    if (audioContextRef.current) {
+      try { audioContextRef.current.close(); } catch { /* ignore */ }
+    }
+
     setAiMode("idle");
     setTerminated(true);
   }, []);
@@ -316,6 +480,10 @@ const InterviewRoom = () => {
           activeRecognitionRef.current.abort();
         } catch { /* ignore */ }
         activeRecognitionRef.current = null;
+      }
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+      if (audioContextRef.current) {
+        try { audioContextRef.current.close(); } catch { /* ignore */ }
       }
     };
   }, []);
@@ -339,48 +507,30 @@ const InterviewRoom = () => {
     : mean(correctnessHistory.current) >= 0.45 ? 2 : 1;
 
   // ── API helpers ───────────────────────────────────────────────────────────
-  const evaluateAnswer = useCallback(async (
+  const respondToCandidate = useCallback(async (
     mq: Question,
+    utterance: string,
     exchanges: Exchange[],
+    attemptNumber: number = 0,
   ) => {
     if (terminatedRef.current) return null;
-    const res = await fetch(`${API}/interview-ai/evaluate-answer`, {
+    const res = await fetch(`${API}/interview-ai/respond-to-candidate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         main_question:        mq.question,
+        category:             mq.category || "technical",
         key_points:           mq.key_points || [],
         ideal_depth:          mq.ideal_depth || "",
+        candidate_utterance:  utterance,
         exchanges,
-        full_transcript_text: transcriptToText(transcriptRef.current),
-        strength_label:       strengthLabel(correctnessHistory.current),
+        attempt_number:       attemptNumber,
       }),
     });
     if (terminatedRef.current) return null;
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || data.error || "Evaluation failed");
-    return data.evaluation;
-  }, []);
-
-  const generateFollowup = useCallback(async (
-    mq: Question,
-    exchanges: Exchange[],
-  ) => {
-    if (terminatedRef.current) return null;
-    const res = await fetch(`${API}/interview-ai/followup`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        main_question:        mq.question,
-        exchanges,
-        full_transcript_text: transcriptToText(transcriptRef.current),
-        strength_label:       strengthLabel(correctnessHistory.current),
-      }),
-    });
-    if (terminatedRef.current) return null;
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || data.error || "Followup failed");
-    return { reaction: data.reaction || "", followup_question: data.followup_question || "" };
+    if (!res.ok) throw new Error(data.detail || data.error || "Turn failed");
+    return data;
   }, []);
 
   const computeFinalScore = useCallback(async () => {
@@ -418,76 +568,121 @@ const InterviewRoom = () => {
       setCurrentTopic(mq.topic || "");
       setCurrentCategory(mq.category || "");
       setLiveTranscript("");
+      manualAnswerRef.current = "";
 
-      // Speak the question
+      // Speak the initial question
       setAiMode("speaking");
       await speak(questionText, isTerminated);
       if (terminatedRef.current) break;
 
-      // Listen for answer
-      setAiMode("listening");
-      setLiveTranscript("");
-      const answer = await listenForAnswer(
-        (t) => { if (!terminatedRef.current) setLiveTranscript(t); },
-        (s) => { if (!terminatedRef.current) setSilenceCountdown(s); },
-        isTerminated,
-        (rec) => { activeRecognitionRef.current = rec; },
-      );
-      if (terminatedRef.current) break;
-
-      const exchanges: Exchange[] = [{ question: mq.question, answer }];
-      currentExchangesRef.current = exchanges;
-
       let lastEval: any = null;
+      let questionResolved = false;
+      let turnCount = 0;
+      let silenceRetries = 0;
+      const exchanges: Exchange[] = [];
 
-      // Follow-up loop
-      for (let fu = 0; fu < MAX_FOLLOWUPS; fu++) {
-        if (terminatedRef.current) break;
-        setAiMode("processing");
-
-        let evalResult: any;
-        try {
-          evalResult = await evaluateAnswer(mq, exchanges);
-        } catch (e: any) {
-          console.error("Eval error:", e.message);
-          break;
-        }
-        if (terminatedRef.current) break;
-        lastEval = evalResult;
-
-        const threshold = followupThreshold(fu);
-        if ((evalResult?.completeness_score ?? 1.0) >= threshold) break;
-
-        let followupData: { reaction: string; followup_question: string } | null;
-        try {
-          followupData = await generateFollowup(mq, exchanges);
-        } catch (e: any) {
-          console.error("Followup error:", e.message);
-          break;
-        }
-        if (terminatedRef.current || !followupData) break;
-
-        const fuText = `${followupData.reaction} ${followupData.followup_question}`.trim();
-        setFollowupCount(fu + 1);
-        setCurrentQuestion(fuText);
-        setLiveTranscript("");
-
-        setAiMode("speaking");
-        await speak(fuText, isTerminated);
-        if (terminatedRef.current) break;
-
+      // Conversational interaction loop on THIS question (handles candidate questions, clarifications, followups)
+      while (!questionResolved && turnCount < 4 && !terminatedRef.current) {
         setAiMode("listening");
         setLiveTranscript("");
-        const fuAnswer = await listenForAnswer(
-          (t) => { if (!terminatedRef.current) setLiveTranscript(t); },
+        manualAnswerRef.current = "";
+
+        const spokenAnswer = await listenForAnswer(
+          (t) => {
+            if (!terminatedRef.current) {
+              setLiveTranscript(t);
+              manualAnswerRef.current = t;
+            }
+          },
           (s) => { if (!terminatedRef.current) setSilenceCountdown(s); },
           isTerminated,
           (rec) => { activeRecognitionRef.current = rec; },
+          (submitFn) => { submitCurrentAnswerRef.current = submitFn; },
+          () => manualAnswerRef.current,
+          mediaStreamRef.current,
         );
         if (terminatedRef.current) break;
 
-        exchanges.push({ question: followupData.followup_question, answer: fuAnswer });
+        const candidateText = (spokenAnswer || "").trim();
+
+        // 1. Check for silence / empty speech:
+        if (!candidateText || candidateText.length < 3) {
+          if (silenceRetries === 0) {
+            silenceRetries++;
+            const promptRetry = "I didn't quite hear an answer. Whenever you're ready, feel free to speak, type your answer, or ask if you'd like me to clarify!";
+            setCurrentQuestion(promptRetry);
+            setAiMode("speaking");
+            await speak(promptRetry, isTerminated);
+            if (terminatedRef.current) break;
+            continue;
+          } else {
+            // Still silent: move on gracefully
+            const promptSkip = "No worries at all, let's move forward to the next question.";
+            setCurrentQuestion(promptSkip);
+            setAiMode("speaking");
+            await speak(promptSkip, isTerminated);
+            if (terminatedRef.current) break;
+            lastEval = { correctness_score: 0.0, depth_score: 0.0, completeness_score: 0.0, reason: "Candidate remained silent." };
+            break;
+          }
+        }
+
+        // 2. Intelligent Conversational Turn: analyze candidate's question, don't-know, or answer
+        setAiMode("processing");
+        let turnResult: any;
+        try {
+          turnResult = await respondToCandidate(mq, candidateText, exchanges, turnCount);
+        } catch (e: any) {
+          console.error("Turn error:", e.message);
+          break;
+        }
+        if (terminatedRef.current || !turnResult) break;
+
+        const { intent, spoken_response, action, evaluation } = turnResult;
+
+        if (intent === "candidate_question") {
+          // CANDIDATE ASKED A QUESTION (e.g. "Can you explain what closures are?" or "Can you repeat that?")
+          // Alex speaks the actual answer to the candidate's question and loops back to listen!
+          setCurrentQuestion(spoken_response);
+          setAiMode("speaking");
+          await speak(spoken_response, isTerminated);
+          if (terminatedRef.current) break;
+          // Remain on this question, do not count against answer attempts
+          continue;
+        }
+
+        if (intent === "does_not_know") {
+          // Candidate doesn't know / wants to pass
+          setCurrentQuestion(spoken_response);
+          setAiMode("speaking");
+          await speak(spoken_response, isTerminated);
+          if (terminatedRef.current) break;
+          lastEval = evaluation;
+          exchanges.push({ question: mq.question, answer: candidateText });
+          break;
+        }
+
+        // intent === "answered": Candidate answered the question
+        exchanges.push({ question: (exchanges.length === 0 ? mq.question : `Follow-up ${turnCount}`), answer: candidateText });
         currentExchangesRef.current = exchanges;
+        lastEval = evaluation;
+        turnCount++;
+
+        // Speak Alex's natural reaction / follow-up probe / wrap-up
+        setCurrentQuestion(spoken_response);
+        setAiMode("speaking");
+        await speak(spoken_response, isTerminated);
+        if (terminatedRef.current) break;
+
+        if (action === "followup" && turnCount < 3) {
+          setFollowupCount(turnCount);
+          // Loop again to listen for candidate's answer to Alex's follow-up!
+          continue;
+        } else {
+          // Question complete: move to next main question
+          questionResolved = true;
+          break;
+        }
       }
 
       if (terminatedRef.current) break;
@@ -545,7 +740,7 @@ const InterviewRoom = () => {
       setIsFinished(true);
       runningRef.current = false;
     }
-  }, [evaluateAnswer, generateFollowup, computeFinalScore, isTerminated, state.applicationId]);
+  }, [respondToCandidate, computeFinalScore, isTerminated, state.applicationId]);
 
   // Start on mount when questions are ready
   useEffect(() => {
@@ -817,30 +1012,100 @@ const InterviewRoom = () => {
         {/* Candidate camera + live transcript - RIGHT */}
         <div className="flex flex-col gap-4">
           <GlassCard variant="neon" hover={false} className="aspect-video flex items-center justify-center relative overflow-hidden p-0">
-            <CandidateCamera enabled={!terminated} />
-            <div className="absolute top-4 right-4 z-10 flex items-center gap-2 bg-black/60 px-2 py-1 rounded-full backdrop-blur-sm">
+            <CandidateCamera enabled={!terminated} onStream={handleMediaStream} />
+            <div className="absolute top-4 right-4 z-10 flex items-center gap-2 bg-black/60 px-2.5 py-1 rounded-full backdrop-blur-sm border border-white/10">
               <div className="w-2 h-2 rounded-full bg-destructive animate-glow-pulse" />
               <span className="text-[10px] font-semibold text-white tracking-wider">LIVE FEED</span>
             </div>
           </GlassCard>
 
-          {/* Live transcript box */}
+          {/* Live transcript & interactive response box */}
           <GlassCard variant="neon" hover={false} className="p-4">
             <div className="flex items-center justify-between mb-2">
-              <h4 className="text-xs text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                <Mic className="w-3 h-3 text-primary" /> Your Answer (Live Speech-to-Text)
-              </h4>
+              <div className="flex items-center gap-2.5">
+                <h4 className="text-xs text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 font-semibold">
+                  <Mic className={`w-3.5 h-3.5 ${audioLevel > 12 ? "text-emerald-400" : "text-primary"}`} />
+                  Your Answer
+                </h4>
+                {/* Live Mic Audio Level Meter */}
+                <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-muted/20 border border-border/30">
+                  {[1, 2, 3, 4, 5, 6].map((bar) => (
+                    <div
+                      key={bar}
+                      className={`w-1 rounded-full transition-all duration-75 ${
+                        audioLevel >= bar * 12
+                          ? "bg-emerald-400 h-3 shadow-[0_0_6px_rgba(52,211,153,0.8)]"
+                          : "bg-muted/40 h-1.5"
+                      }`}
+                    />
+                  ))}
+                  <span className="text-[10px] font-mono ml-1 text-muted-foreground">
+                    {audioLevel > 12 ? (
+                      <span className="text-emerald-400 font-medium">Voice Detected</span>
+                    ) : (
+                      "Mic Ready"
+                    )}
+                  </span>
+                </div>
+              </div>
+
               {aiMode === "listening" && (
-                <span className="text-xs text-amber-400 font-mono">
-                  Auto-submits in {silenceCountdown}s
+                <span className="text-xs text-amber-400 font-mono flex items-center gap-1">
+                  <Clock className="w-3 h-3" /> {silenceCountdown}s left
                 </span>
               )}
             </div>
-            <p className={`text-sm min-h-[56px] max-h-[90px] overflow-y-auto leading-relaxed ${
-              liveTranscript ? "text-foreground" : "text-muted-foreground/50 italic"
-            }`}>
-              {liveTranscript || (aiMode === "listening" ? "Start speaking your answer clearly..." : "Waiting for next question...")}
-            </p>
+
+            {/* Live speech-to-text / editable answer box */}
+            <div className="relative mb-3">
+              <textarea
+                value={liveTranscript}
+                onChange={(e) => {
+                  setLiveTranscript(e.target.value);
+                  manualAnswerRef.current = e.target.value;
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    if (submitCurrentAnswerRef.current) {
+                      submitCurrentAnswerRef.current();
+                    }
+                  }
+                }}
+                placeholder={
+                  aiMode === "listening"
+                    ? "Microphone is listening — Speak your answer now (or type here)..."
+                    : aiMode === "speaking"
+                    ? "Interviewer is speaking... (You can speak or start typing here)"
+                    : "Evaluating your response with AI..."
+                }
+                disabled={aiMode === "processing"}
+                rows={3}
+                className="w-full text-sm p-3 rounded-lg bg-black/40 border border-border/50 text-foreground placeholder:text-muted-foreground/60 resize-none focus:outline-none focus:border-primary/50 transition-all font-sans leading-relaxed"
+              />
+            </div>
+
+            {/* Answer Controls: Submit Answer button */}
+            {aiMode !== "processing" && (
+              <div className="flex items-center justify-between gap-3 pt-1">
+                <span className="text-[11px] text-muted-foreground">
+                  {aiMode === "listening"
+                    ? "Speak clearly or type above. Press Enter or click Submit when done."
+                    : "Interviewer is asking question. Speak or type anytime."}
+                </span>
+                <button
+                  onClick={() => {
+                    if (submitCurrentAnswerRef.current) {
+                      submitCurrentAnswerRef.current();
+                    }
+                  }}
+                  className="px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white font-medium text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-500/25 transition-all cursor-pointer"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Submit Answer</span>
+                </button>
+              </div>
+            )}
           </GlassCard>
         </div>
       </div>

@@ -8,7 +8,7 @@ Endpoints:
 """
 
 # pyrefly: ignore[missing-import]
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File
 # pyrefly: ignore[missing-import]
 from pydantic import BaseModel
 from typing import List, Optional, Any
@@ -124,6 +124,15 @@ class FinalScoreRequest(BaseModel):
     candidate:  CandidateProfile
     job:        JobData
     transcript: List[TranscriptItem]
+
+class ConversationalTurnRequest(BaseModel):
+    main_question:       str
+    category:            str = "technical"
+    key_points:          List[str] = []
+    ideal_depth:         str = ""
+    candidate_utterance: str
+    exchanges:           List[Exchange] = []
+    attempt_number:      int = 0
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -604,6 +613,24 @@ async def evaluate_answer(req: EvaluateAnswerRequest):
             return {"success": True, "scored": False, "evaluation": None,
                     "recommended_action": "move_on", "difficulty_delta": "same"}
 
+        # ── Silence / Empty answer guard ─────────────────────────────────────
+        latest_answer = req.exchanges[-1].answer.strip() if req.exchanges else ""
+        if not latest_answer or len(latest_answer) < 3 or latest_answer.lower() in ["(no answer provided)", "no answer", "silence"]:
+            return {
+                "success": True,
+                "scored": True,
+                "evaluation": {
+                    "restated_answer": "No answer provided.",
+                    "correctness_score": 0.0,
+                    "depth_score": 0.0,
+                    "completeness_score": 0.0,
+                    "combined_score": 0.0,
+                    "reason": "Candidate remained silent or did not provide an answer.",
+                },
+                "recommended_action": "move_on",
+                "difficulty_delta": "same",
+            }
+
         # ── Build prompt ──────────────────────────────────────────────────────
         convo = "\n".join(f"Q: {e.question}\nA: {e.answer}" for e in req.exchanges)
         user_prompt = (
@@ -676,6 +703,16 @@ async def evaluate_answer(req: EvaluateAnswerRequest):
 async def generate_followup(req: FollowupRequest):
     """Generate a follow-up question using Groq, respecting the requested mode."""
     try:
+        # ── Silence / Empty answer guard ─────────────────────────────────────
+        latest_answer = req.exchanges[-1].answer.strip() if req.exchanges else ""
+        if not latest_answer or len(latest_answer) < 3 or latest_answer.lower() in ["(no answer provided)", "no answer", "silence"]:
+            return {
+                "success":           True,
+                "reaction":          "I didn't quite catch an answer.",
+                "followup_question": "Could you please elaborate or share your response to the question?",
+                "mode":              req.mode,
+            }
+
         convo = "\n".join(f"Q: {e.question}\nA: {e.answer}" for e in req.exchanges)
 
         # Surface mode and target_difficulty explicitly in the user prompt so the
@@ -942,3 +979,161 @@ def _derive_signals_summary(signals: List[QuestionSignalsPayload]) -> dict:
         # NOTE: composure/emotion signals are supplementary reviewer context only.
         # They must NEVER be used to adjust the candidate's technical evaluation.
     }
+
+
+@router.post("/transcribe-audio")
+async def transcribe_audio_endpoint(file: UploadFile = File(...)):
+    """Transcribe recorded candidate speech audio using Groq Whisper (whisper-large-v3-turbo)."""
+    key = settings.GROQ_API_KEY.strip()
+    if not key:
+        raise HTTPException(status_code=503, detail="GROQ_API_KEY not configured")
+
+    audio_bytes = await file.read()
+    if not audio_bytes or len(audio_bytes) < 100:
+        return {"success": True, "text": ""}
+
+    try:
+        files = {
+            "file": (file.filename or "recording.webm", audio_bytes, file.content_type or "audio/webm")
+        }
+        data = {
+            "model": "whisper-large-v3-turbo",
+            "language": "en",
+            "response_format": "json"
+        }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                "https://api.groq.com/openai/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {key}"},
+                files=files,
+                data=data
+            )
+            if not resp.is_success:
+                logger.error(f"Groq Whisper transcription error: {resp.text}")
+                raise HTTPException(status_code=resp.status_code, detail=resp.text)
+            
+            result = resp.json()
+            transcription = result.get("text", "").strip()
+            return {"success": True, "text": transcription}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"transcribe_audio_endpoint error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _conversational_turn_system_prompt() -> str:
+    return f"""{INTERVIEWER_PERSONA}
+
+You are Alex in an active live voice interview. The candidate just spoke.
+Analyze their spoken utterance and determine their intent:
+1. "candidate_question": The candidate is asking a question, asking for clarification, asking to repeat the question, or asking for an example or hint.
+2. "does_not_know": The candidate explicitly says they don't know, have not used this, or want to skip/pass.
+3. "answered": The candidate attempted to answer the question.
+
+STRICT BEHAVIORAL RULES:
+- If intent == "candidate_question":
+  * Do NOT evaluate or score.
+  * Directly, warmly, and concisely ANSWER the candidate's question in 1-2 spoken sentences.
+  * Then invite them to answer the interview question (e.g. "Does that make sense? How would you approach it?").
+  * set "action" to "listen_again".
+- If intent == "does_not_know":
+  * Do NOT give fake praise or artificial compliments.
+  * Warmly and gracefully acknowledge: "That's completely fine, no worries at all. Let's move on to the next topic."
+  * set "action" to "move_on".
+  * set scores to 0.0.
+- If intent == "answered":
+  * Score accuracy, depth, and completeness (0.0 to 1.0) based on key_points and ideal_depth.
+  * Provide a natural, context-aware spoken response directly reacting to what they said (1-2 sentences).
+  * Do NOT use robotic generic phrases like "Nice sound!" or "Good overview!".
+  * If completeness >= 0.7 or attempt_number >= 2:
+    - Wrap up gracefully: e.g. "Got it, that makes sense. Let's move on."
+    - set "action" to "move_on".
+  * If completeness < 0.7 and attempt_number < 2:
+    - Ask a natural follow-up probe digging into the missing aspect.
+    - set "action" to "followup".
+
+Return ONLY valid JSON:
+{{
+  "intent": "candidate_question" | "does_not_know" | "answered",
+  "spoken_response": "1-3 natural spoken sentences for Alex to say aloud",
+  "action": "listen_again" | "followup" | "move_on",
+  "correctness_score": 0.0,
+  "depth_score": 0.0,
+  "completeness_score": 0.0,
+  "reason": "brief reason for score or action"
+}}""".strip()
+
+
+@router.post("/respond-to-candidate")
+async def respond_to_candidate_endpoint(req: ConversationalTurnRequest):
+    """Handle candidate conversational turns: answer candidate questions, handle 'don't know', or evaluate answers."""
+    utterance = (req.candidate_utterance or "").strip()
+    if not utterance or len(utterance) < 3 or utterance.lower() in ["(no answer provided)", "silence"]:
+        return {
+            "success": True,
+            "intent": "silence",
+            "spoken_response": "I didn't quite hear an answer. Whenever you're ready, please share your thoughts or ask if you need clarification.",
+            "action": "listen_again",
+            "evaluation": {
+                "correctness_score": 0.0,
+                "depth_score": 0.0,
+                "completeness_score": 0.0,
+                "combined_score": 0.0,
+                "reason": "Candidate remained silent."
+            }
+        }
+
+    # If rapport question
+    if req.category == "rapport":
+        user_prompt = (
+            f"Interviewer Greeting/Icebreaker: {req.main_question}\n"
+            f"Candidate Spoke: {utterance}\n\n"
+            "Provide a warm, human reaction (1 sentence) and smoothly transition forward."
+        )
+        sys_prompt = (
+            f"{INTERVIEWER_PERSONA}\n"
+            "React warmly and naturally to the candidate's introduction in 1 short spoken sentence. "
+            "Return JSON: {\"intent\": \"answered\", \"spoken_response\": \"...\", \"action\": \"move_on\", "
+            "\"correctness_score\": 1.0, \"depth_score\": 1.0, \"completeness_score\": 1.0, \"combined_score\": 1.0, \"reason\": \"rapport\"}"
+        )
+        raw = await _call_with_retries(lambda: _call_groq(sys_prompt, user_prompt))
+        res = _extract_json(raw)
+        return {"success": True, **res}
+
+    convo = "\n".join(f"Q: {e.question}\nA: {e.answer}" for e in req.exchanges)
+    user_prompt = (
+        f"Main Interview Question: {req.main_question}\n"
+        f"Key Points Expected: {json.dumps(req.key_points)}\n"
+        f"Ideal Depth: {req.ideal_depth}\n"
+        f"Attempt Number on this question: {req.attempt_number}\n"
+        f"Prior exchanges on this question:\n{convo}\n\n"
+        f"Candidate just said: \"{utterance}\"\n\n"
+        "Analyze the intent and generate the JSON response now."
+    )
+    raw = await _call_with_retries(lambda: _call_groq(_conversational_turn_system_prompt(), user_prompt))
+    result = _extract_json(raw)
+
+    intent = result.get("intent", "answered")
+    spoken_response = result.get("spoken_response", "")
+    action = result.get("action", "move_on")
+    correctness = float(result.get("correctness_score", 0.0) or 0.0)
+    depth = float(result.get("depth_score", 0.0) or 0.0)
+    completeness = float(result.get("completeness_score", 0.0) or 0.0)
+    combined = round(((correctness + depth + completeness) / 3) * 1000) / 1000
+
+    return {
+        "success": True,
+        "intent": intent,
+        "spoken_response": spoken_response,
+        "action": action,
+        "evaluation": {
+            "correctness_score": correctness,
+            "depth_score": depth,
+            "completeness_score": completeness,
+            "combined_score": combined,
+            "reason": result.get("reason", "")
+        }
+    }
+
+
