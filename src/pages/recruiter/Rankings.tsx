@@ -4,7 +4,8 @@ import GlassCard from "@/components/GlassCard";
 import {
   LayoutDashboard, FilePlus, Database, BarChart2,
   MessageCircle, LogOut, User, Briefcase, Users,
-  X, Download, ChevronDown, ChevronUp, Mail, Send, FileText, Clock, CheckCircle, XCircle
+  X, Download, ChevronDown, ChevronUp, Mail, Send, FileText, Clock, CheckCircle, XCircle,
+  Sparkles, Loader2, AlertCircle, Check
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -55,6 +56,8 @@ interface Application {
   candidate_name: string;
   candidate_email: string;
   application_status: string;
+  rejection_email_sent?: boolean;
+  rejection_email_sent_at?: string;
   scores?: {
     aptitude?: ScoreEntry;
     coding?: ScoreEntry;
@@ -190,6 +193,12 @@ const Reports = () => {
   const [emailAttachments, setEmailAttachments] = useState<File[]>([]);
   const [sendingEmail, setSendingEmail] = useState(false);
 
+  // Bulk rejection & automation states
+  const [bulkRejectModalOpen, setBulkRejectModalOpen] = useState(false);
+  const [postSelectionPromptOpen, setPostSelectionPromptOpen] = useState(false);
+  const [lastSelectedCandidateName, setLastSelectedCandidateName] = useState("");
+  const [bulkRejecting, setBulkRejecting] = useState(false);
+
   const email = user?.email || (() => {
     try { return JSON.parse(localStorage.getItem("user") || "{}").email || ""; } catch { return ""; }
   })();
@@ -274,6 +283,62 @@ const Reports = () => {
   const closeModal = () => { setSelectedJob(null); setApplications([]); };
 
   const rounds = selectedJob ? getRounds(selectedJob) : [];
+
+  // Candidates for this job who are unselected (eligible for rejection)
+  const unselectedCandidates = applications.filter(
+    a => a.application_status !== "selected" && 
+         a.application_status !== "offer_sent" && 
+         a.application_status !== "offer_accepted"
+  );
+  const unselectedPendingEmail = unselectedCandidates.filter(a => !a.rejection_email_sent);
+  const selectedCandidates = applications.filter(
+    a => a.application_status === "selected" || 
+         a.application_status === "offer_sent" || 
+         a.application_status === "offer_accepted"
+  );
+
+  const handleBulkReject = async (candidateList: Application[] = unselectedCandidates) => {
+    if (!selectedJob || candidateList.length === 0) return;
+    setBulkRejecting(true);
+    try {
+      const res = await fetch(`${API}/applications/jobs/${selectedJob._id}/bulk-reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          application_ids: candidateList.map(c => c._id),
+          send_emails: true
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || data.detail || "Failed to bulk reject candidates");
+      }
+
+      const rejectedIdSet = new Set(data.rejected_ids || candidateList.map(c => c._id));
+      setApplications(prev => prev.map(a => 
+        rejectedIdSet.has(a._id) 
+          ? { ...a, application_status: "rejected", rejection_email_sent: true, rejection_email_sent_at: new Date().toISOString() } 
+          : a
+      ));
+
+      toast({
+        title: "Rejection Emails Sent 🚀",
+        description: `Successfully dispatched rejection emails to ${data.count || candidateList.length} candidate(s).`,
+      });
+
+      setBulkRejectModalOpen(false);
+      setPostSelectionPromptOpen(false);
+    } catch (err: any) {
+      console.error("Bulk reject error:", err);
+      toast({
+        title: "Bulk Rejection Failed",
+        description: err.message || "Could not send rejection emails.",
+        variant: "destructive"
+      });
+    } finally {
+      setBulkRejecting(false);
+    }
+  };
 
   // Email draft templates (plain text for editing)
   const generateEmailDraft = (action: "selected" | "rejected" | "wait", candidate: Application, job: Job) => {
@@ -493,9 +558,12 @@ The ${companyName} Team`
 
         const result = await response.json();
         if (result.success) {
+          const currentCandidateName = selectedCandidate.candidate_name;
+          const currentCandidateId = selectedCandidate._id;
+
           try {
-            await fetch(`${API}/applications/${selectedCandidate._id}/offer-send`, { method: 'PATCH' });
-            setApplications(prev => prev.map(a => a._id === selectedCandidate._id ? { ...a, application_status: "offer_sent" } : a));
+            await fetch(`${API}/applications/${currentCandidateId}/offer-send`, { method: 'PATCH' });
+            setApplications(prev => prev.map(a => a._id === currentCandidateId ? { ...a, application_status: "offer_sent" } : a));
           } catch (e) {
             console.error('Error updating status to offer_sent:', e);
           }
@@ -505,6 +573,19 @@ The ${companyName} Team`
             description: `Selection email with Accept/Reject buttons sent to ${selectedCandidate.candidate_email}`,
           });
           closeEmailModal();
+
+          // Check if there are other applicants to reject
+          const remaining = applications.filter(a => 
+            a._id !== currentCandidateId && 
+            a.application_status !== "selected" && 
+            a.application_status !== "offer_sent" && 
+            a.application_status !== "offer_accepted" && 
+            !a.rejection_email_sent
+          );
+          if (remaining.length > 0) {
+            setLastSelectedCandidateName(currentCandidateName);
+            setPostSelectionPromptOpen(true);
+          }
         } else {
           throw new Error(result.error || result.message || 'Failed to send email');
         }
@@ -531,20 +612,59 @@ The ${companyName} Team`
 
         const result = await response.json();
         if (result.success) {
+          const currentCandidateName = selectedCandidate.candidate_name;
+          const currentCandidateId = selectedCandidate._id;
+
           if (emailAction === 'selected') {
             try {
-              await fetch(`${API}/applications/${selectedCandidate._id}/offer-send`, { method: 'PATCH' });
-              setApplications(prev => prev.map(a => a._id === selectedCandidate._id ? { ...a, application_status: "offer_sent" } : a));
+              await fetch(`${API}/applications/${currentCandidateId}/offer-send`, { method: 'PATCH' });
+              setApplications(prev => prev.map(a => a._id === currentCandidateId ? { ...a, application_status: "offer_sent" } : a));
             } catch (e) {
               console.error('Error updating status to offer_sent:', e);
             }
-          }
 
-          toast({
-            title: "Email Sent Successfully",
-            description: `Email has been sent to ${selectedCandidate.candidate_email}`,
-          });
-          closeEmailModal();
+            toast({
+              title: "Offer Email Sent Successfully",
+              description: `Email has been sent to ${selectedCandidate.candidate_email}`,
+            });
+            closeEmailModal();
+
+            // Check if there are other applicants to reject
+            const remaining = applications.filter(a => 
+              a._id !== currentCandidateId && 
+              a.application_status !== "selected" && 
+              a.application_status !== "offer_sent" && 
+              a.application_status !== "offer_accepted" && 
+              !a.rejection_email_sent
+            );
+            if (remaining.length > 0) {
+              setLastSelectedCandidateName(currentCandidateName);
+              setPostSelectionPromptOpen(true);
+            }
+          } else if (emailAction === 'rejected') {
+            try {
+              await fetch(`${API}/applications/${currentCandidateId}/status`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ application_status: 'rejected' })
+              });
+              setApplications(prev => prev.map(a => a._id === currentCandidateId ? { ...a, application_status: "rejected", rejection_email_sent: true, rejection_email_sent_at: new Date().toISOString() } : a));
+            } catch (e) {
+              console.error('Error updating status to rejected:', e);
+            }
+
+            toast({
+              title: "Rejection Email Sent",
+              description: `Rejection email has been sent to ${selectedCandidate.candidate_email}`,
+            });
+            closeEmailModal();
+          } else {
+            toast({
+              title: "Email Sent Successfully",
+              description: `Email has been sent to ${selectedCandidate.candidate_email}`,
+            });
+            closeEmailModal();
+          }
         } else {
           throw new Error(result.error || result.message || 'Failed to send email');
         }
@@ -636,7 +756,23 @@ The ${companyName} Team`
                 <h2 className="text-xl font-semibold text-foreground">{selectedJob.title}</h2>
                 <p className="text-sm text-muted-foreground mt-0.5">{selectedJob.organization_name} • {selectedJob.experience}</p>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                {unselectedCandidates.length > 0 ? (
+                  <button
+                    onClick={() => setBulkRejectModalOpen(true)}
+                    disabled={bulkRejecting}
+                    className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-red-500/15 border border-red-500/30 text-red-400 hover:bg-red-500/25 transition-all text-xs font-semibold shadow-sm"
+                    title="Send automated polite rejection emails to all candidates who were not selected"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    Send Rejection Email to All Rejected ({unselectedPendingEmail.length > 0 ? unselectedPendingEmail.length : unselectedCandidates.length})
+                  </button>
+                ) : sortedApps.length > 0 && selectedCandidates.length > 0 ? (
+                  <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-500/10 border border-green-500/20 text-green-400 text-xs font-medium">
+                    <Check className="w-3.5 h-3.5" /> All Candidate Decisions Finalized
+                  </span>
+                ) : null}
+
                 <button
                   onClick={() => printReport(selectedJob, rounds, sortedApps)}
                   className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary/20 text-primary border border-primary/40 hover:bg-primary/30 transition-all text-sm"
@@ -650,14 +786,23 @@ The ${companyName} Team`
             </div>
 
             {/* Job details strip */}
-            <div className="px-6 py-3 border-b border-border/20 flex flex-wrap gap-4 text-xs text-muted-foreground bg-muted/5">
-              {selectedJob.vacancies != null && <span>Vacancies: <strong className="text-foreground">{selectedJob.vacancies}</strong></span>}
-              {selectedJob.start_date && <span>Start: <strong className="text-foreground">{new Date(selectedJob.start_date).toLocaleDateString()}</strong></span>}
-              {selectedJob.end_date && <span>End: <strong className="text-foreground">{new Date(selectedJob.end_date).toLocaleDateString()}</strong></span>}
-              <span>Skills: <strong className="text-foreground">{selectedJob.required_skills.join(", ")}</strong></span>
-              {rounds.map(r => r.threshold != null && (
-                <span key={r.key}>{r.label} cutoff: <strong className="text-foreground">{r.threshold}%</strong></span>
-              ))}
+            <div className="px-6 py-3 border-b border-border/20 flex flex-wrap items-center justify-between gap-4 text-xs text-muted-foreground bg-muted/5">
+              <div className="flex flex-wrap gap-4">
+                {selectedJob.vacancies != null && <span>Vacancies: <strong className="text-foreground">{selectedJob.vacancies}</strong></span>}
+                {selectedJob.start_date && <span>Start: <strong className="text-foreground">{new Date(selectedJob.start_date).toLocaleDateString()}</strong></span>}
+                {selectedJob.end_date && <span>End: <strong className="text-foreground">{new Date(selectedJob.end_date).toLocaleDateString()}</strong></span>}
+                <span>Skills: <strong className="text-foreground">{selectedJob.required_skills.join(", ")}</strong></span>
+                {rounds.map(r => r.threshold != null && (
+                  <span key={r.key}>{r.label} cutoff: <strong className="text-foreground">{r.threshold}%</strong></span>
+                ))}
+              </div>
+
+              {/* Status tally */}
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded bg-muted/20 text-foreground font-medium">Total: {sortedApps.length}</span>
+                <span className="px-2 py-0.5 rounded bg-green-500/15 text-green-400 font-medium">Selected: {selectedCandidates.length}</span>
+                <span className="px-2 py-0.5 rounded bg-red-500/15 text-red-400 font-medium">Rejected: {unselectedCandidates.length}</span>
+              </div>
             </div>
 
             {/* Table */}
@@ -700,11 +845,38 @@ The ${companyName} Team`
                     <tbody>
                       {sortedApps.map((app, i) => {
                         const tot = totalScore(app, rounds);
+                        const isOfferSent = app.application_status === "offer_sent";
+                        const isSelected = app.application_status === "selected";
+                        const isAccepted = app.application_status === "offer_accepted";
+                        const isRejected = app.application_status === "rejected";
+
                         return (
                           <tr key={app._id} className="border-b border-border/10 hover:bg-muted/10 transition-colors">
                             <td className="py-3 px-3 text-muted-foreground">{i + 1}</td>
                             <td className="py-3 px-3">
-                              <p className="text-foreground font-medium">{app.candidate_name}</p>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="text-foreground font-medium">{app.candidate_name}</p>
+                                {isAccepted && (
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                                    Offer Accepted
+                                  </span>
+                                )}
+                                {isOfferSent && (
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-teal-500/20 text-teal-400 border border-teal-500/30">
+                                    Offer Sent
+                                  </span>
+                                )}
+                                {isSelected && (
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-500/20 text-green-400 border border-green-500/30">
+                                    Selected
+                                  </span>
+                                )}
+                                {isRejected && (
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-500/20 text-red-400 border border-red-500/30">
+                                    Rejected {app.rejection_email_sent ? "• Mail Sent" : ""}
+                                  </span>
+                                )}
+                              </div>
                               <p className="text-xs text-muted-foreground">{app.candidate_email}</p>
                             </td>
                             {rounds.map(r => {
@@ -750,6 +922,186 @@ The ${companyName} Team`
                   </table>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Post-Selection Rejection Automation Prompt ── */}
+      {postSelectionPromptOpen && selectedJob && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <div className="bg-card border border-primary/30 rounded-2xl shadow-2xl max-w-lg w-full p-6 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-green-500/20 text-green-400 flex items-center justify-center shrink-0">
+                <CheckCircle className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-foreground">Offer Email Dispatched! 🎉</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Selection offer was sent to <strong className="text-foreground">{lastSelectedCandidateName}</strong> for <strong className="text-foreground">{selectedJob.title}</strong>.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-xl bg-muted/20 border border-border/40 text-sm space-y-2">
+              <p className="font-semibold text-foreground flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-primary" />
+                Automate Rejections in 1 Click
+              </p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                There are <strong className="text-red-400 font-bold">{unselectedCandidates.length}</strong> remaining applicant(s) who applied for this job and were not selected.
+                Would you like the system to send polite, professional rejection emails to all of them right now?
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 flex-wrap">
+              <button
+                onClick={() => setPostSelectionPromptOpen(false)}
+                className="px-4 py-2 rounded-lg bg-muted/30 hover:bg-muted/50 text-muted-foreground hover:text-foreground text-xs font-semibold transition-all"
+              >
+                I'll Do It Later
+              </button>
+              <button
+                onClick={() => {
+                  setPostSelectionPromptOpen(false);
+                  setBulkRejectModalOpen(true);
+                }}
+                className="px-4 py-2 rounded-lg bg-muted/40 hover:bg-muted/60 text-foreground border border-border/40 text-xs font-semibold transition-all"
+              >
+                Review List First
+              </button>
+              <button
+                onClick={() => handleBulkReject(unselectedCandidates)}
+                disabled={bulkRejecting}
+                className="px-4 py-2 rounded-lg bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-xs font-bold shadow-lg shadow-red-500/20 transition-all flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {bulkRejecting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Sending Rejections...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-3.5 h-3.5" />
+                    Send Rejection to All ({unselectedCandidates.length})
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 1-Click Bulk Rejection Review Modal ── */}
+      {bulkRejectModalOpen && selectedJob && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <div className="bg-card border border-border/50 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-border/30">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-red-500/20 text-red-400 flex items-center justify-center shrink-0">
+                  <XCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-foreground">Send Rejection Email to All Rejected Candidates</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Position: <strong className="text-foreground">{selectedJob.title}</strong> • {selectedJob.organization_name}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setBulkRejectModalOpen(false)}
+                className="p-2 rounded-lg bg-muted/20 hover:bg-muted/30 text-muted-foreground transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 space-y-5">
+              <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-300 space-y-1">
+                <p className="font-semibold text-red-200">1-Click Automated Batch Dispatch</p>
+                <p>
+                  This will immediately send an encouraging and professional rejection letter to all{" "}
+                  <strong>{unselectedCandidates.length}</strong> candidates who applied for this role and update their application status to <strong>Rejected</strong>.
+                </p>
+              </div>
+
+              {/* Candidate Recipients List */}
+              <div>
+                <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2">
+                  Recipients ({unselectedCandidates.length} Candidates)
+                </p>
+                <div className="max-h-48 overflow-y-auto rounded-lg border border-border/30 divide-y divide-border/20 bg-muted/10">
+                  {unselectedCandidates.length === 0 ? (
+                    <p className="p-4 text-xs text-muted-foreground text-center">No unselected candidates for this job.</p>
+                  ) : (
+                    unselectedCandidates.map(c => (
+                      <div key={c._id} className="p-3 flex items-center justify-between text-xs">
+                        <div>
+                          <p className="font-semibold text-foreground">{c.candidate_name}</p>
+                          <p className="text-[11px] text-muted-foreground">{c.candidate_email}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {c.rejection_email_sent ? (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-red-500/20 text-red-400">
+                              Mail Already Sent
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-muted/30 text-muted-foreground">
+                              Pending Mail
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Email Template Preview */}
+              <div>
+                <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2">
+                  Email Preview
+                </p>
+                <div className="p-4 rounded-xl bg-muted/20 border border-border/30 text-xs text-muted-foreground space-y-2">
+                  <p><strong>Subject:</strong> Update on your application for {selectedJob.title}</p>
+                  <div className="p-3 rounded bg-background border border-border/20 text-foreground/80 space-y-2 leading-relaxed">
+                    <p>Hello [Candidate Name],</p>
+                    <p>Thank you for your interest in the <strong>{selectedJob.title}</strong> position at <strong>{selectedJob.organization_name}</strong>.</p>
+                    <p>After careful consideration, we regret to inform you that we have decided to move forward with other candidates for this position.</p>
+                    <p className="text-muted-foreground text-[11px]">This decision doesn't reflect on your potential. Continue to apply for other opportunities on NeuroHire AI and keep improving your skills...</p>
+                    <p>Best regards,<br/>The {selectedJob.organization_name} Team</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-border/30">
+              <button
+                onClick={() => setBulkRejectModalOpen(false)}
+                className="px-4 py-2 rounded-lg bg-muted/20 hover:bg-muted/30 text-muted-foreground transition-colors text-xs font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleBulkReject(unselectedCandidates)}
+                disabled={bulkRejecting || unselectedCandidates.length === 0}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-bold text-xs shadow-lg shadow-red-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {bulkRejecting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Sending Rejection Emails...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" />
+                    Confirm & Send to All {unselectedCandidates.length} Rejected Candidates
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>
