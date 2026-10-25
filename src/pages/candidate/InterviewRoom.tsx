@@ -7,8 +7,11 @@ import { InterviewerAvatar } from "@/components/InterviewerAvatar";
 import {
   Brain, Camera, Clock, AlertTriangle, Mic, MicOff, BarChart3,
   TrendingUp, X, Volume2, ArrowLeft, RefreshCw, CheckCircle2, Send,
+  Shield, ShieldAlert, AlertOctagon, UserCheck, Sparkles,
 } from "lucide-react";
 import { Link } from "react-router-dom";
+import * as faceapi from "face-api.js";
+import FaceVerificationGate from "@/components/FaceVerificationGate";
 
 const API = "http://localhost:8000/api/v1";
 
@@ -159,6 +162,7 @@ function listenForAnswer(
   registerSubmit: (submitFn: () => void) => void,
   getCurrentManualText: () => string,
   mediaStream: MediaStream | null,
+  isHalted?: () => boolean,
 ): Promise<string> {
   return new Promise(async (resolve) => {
     if (isTerminated()) { resolve(""); return; }
@@ -259,6 +263,7 @@ function listenForAnswer(
           clearInterval(periodicWhisperTimer);
           return;
         }
+        if (isHalted && isHalted()) return;
         // If browser STT has not produced any transcript but user has spoken audio:
         if (!finalText && !interimText && audioChunks.length >= 6) {
           try {
@@ -277,6 +282,10 @@ function listenForAnswer(
       if (isTerminated()) {
         if (periodicWhisperTimer) clearInterval(periodicWhisperTimer);
         finalize();
+        return;
+      }
+      if (isHalted && isHalted()) {
+        lastSpeech = Date.now(); // freeze silence timeout while security halted
         return;
       }
       const remaining = SILENCE_TIMEOUT_MS - (Date.now() - lastSpeech);
@@ -378,21 +387,64 @@ const InterviewRoom = () => {
   const [errorMsg,         setErrorMsg]         = useState("");
   const [audioLevel,       setAudioLevel]       = useState(0);
 
+  // ── Biometric Face Verification & Proctoring Security State ───────────────
+  const [isVerified,                setIsVerified]                = useState(false);
+  const [isSecurityHalted,          setIsSecurityHalted]          = useState(false);
+  const [securityHaltReason,        setSecurityHaltReason]        = useState("");
+  const [faceViolationsCount,       setFaceViolationsCount]       = useState(0);
+  const [outOfFrameCountdown,       setOutOfFrameCountdown]       = useState<number | null>(null);
+  const [securityTerminated,        setSecurityTerminated]        = useState(false);
+  const [securityTerminationReason, setSecurityTerminationReason] = useState("");
+
   // ── Refs ──────────────────────────────────────────────────────────────────
-  const transcriptRef          = useRef<TranscriptItem[]>([]);
-  const correctnessHistory     = useRef<number[]>([]);
-  const currentExchangesRef    = useRef<Exchange[]>([]);
-  const runningRef             = useRef(false);
-  const terminatedRef          = useRef(false);
-  const activeRecognitionRef   = useRef<any>(null);
-  const manualAnswerRef        = useRef("");
-  const submitCurrentAnswerRef = useRef<(() => void) | null>(null);
-  const audioContextRef        = useRef<AudioContext | null>(null);
-  const animFrameRef           = useRef<number | null>(null);
-  const mediaStreamRef         = useRef<MediaStream | null>(null);
+  const transcriptRef               = useRef<TranscriptItem[]>([]);
+  const correctnessHistory          = useRef<number[]>([]);
+  const currentExchangesRef         = useRef<Exchange[]>([]);
+  const runningRef                  = useRef(false);
+  const terminatedRef               = useRef(false);
+  const activeRecognitionRef        = useRef<any>(null);
+  const manualAnswerRef             = useRef("");
+  const submitCurrentAnswerRef      = useRef<(() => void) | null>(null);
+  const audioContextRef             = useRef<AudioContext | null>(null);
+  const animFrameRef                = useRef<number | null>(null);
+  const mediaStreamRef              = useRef<MediaStream | null>(null);
+  const verifiedDescriptorRef       = useRef<Float32Array | null>(null);
+  const candidateVideoRef           = useRef<HTMLVideoElement | null>(null);
+  const isSecurityHaltedRef         = useRef(false);
+  const faceViolationsRef           = useRef(0);
+  const isMonitoringRef             = useRef(false);
+  const outOfFrameStartTimeRef      = useRef<number | null>(null);
+  const mismatchConsecutiveCountRef = useRef(0);
+  const zeroFaceConsecutiveTicksRef = useRef(0);
+  const multiFaceConsecutiveTicksRef= useRef(0);
+
+  // Keep ref synchronized
+  useEffect(() => {
+    isSecurityHaltedRef.current = isSecurityHalted;
+  }, [isSecurityHalted]);
 
   // Helper function to check termination across all async operations
   const isTerminated = useCallback(() => terminatedRef.current, []);
+
+  // Preload face-api models for continuous background proctoring
+  useEffect(() => {
+    const loadFaceModels = async () => {
+      try {
+        if (!faceapi.nets.tinyFaceDetector.params) {
+          await faceapi.nets.tinyFaceDetector.loadFromUri('/models');
+        }
+        if (!faceapi.nets.faceLandmark68Net.params) {
+          await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
+        }
+        if (!faceapi.nets.faceRecognitionNet.params) {
+          await faceapi.nets.faceRecognitionNet.loadFromUri('/models');
+        }
+      } catch (e) {
+        console.warn("[InterviewRoom] Face models preload notice:", e);
+      }
+    };
+    loadFaceModels();
+  }, []);
 
   // ── Audio Level Meter from Camera/Mic stream ─────────────────────────────
   const handleMediaStream = useCallback((stream: MediaStream) => {
@@ -464,6 +516,14 @@ const InterviewRoom = () => {
     setTerminated(true);
   }, []);
 
+  // ── Automatic Security Termination Handler ────────────────────────────────
+  const handleSecurityTermination = useCallback((reason: string) => {
+    console.error("[InterviewRoom] Automatic Security Termination:", reason);
+    setSecurityTerminated(true);
+    setSecurityTerminationReason(reason);
+    handleTerminate();
+  }, [handleTerminate]);
+
   // ── Cleanup on unmount ────────────────────────────────────────────────────
   useEffect(() => {
     return () => {
@@ -488,12 +548,177 @@ const InterviewRoom = () => {
     };
   }, []);
 
-  // ── Timer ─────────────────────────────────────────────────────────────────
+  // ── Continuous Background Face Proctoring Loop ─────────────────────────────
+  // Ultra-stable proctoring rules:
+  // 1. Moving a little in frame will NEVER halt the interview.
+  // 2. Only halts if candidate is COMPLETELY out of window for > 2 seconds (starts 5s return countdown).
+  // 3. Only halts if another face / multiple faces are detected in camera frame.
   useEffect(() => {
-    if (isFinished || terminated || questions.length === 0) return;
+    if (!isVerified || terminated || isFinished) return;
+
+    let isMounted = true;
+    const intervalTime = 800; // Fast 800ms interval for responsive tracking
+
+    const monitorFaceTick = async () => {
+      if (!isMounted || terminatedRef.current || !verifiedDescriptorRef.current) return;
+      const video = candidateVideoRef.current;
+      if (!video || video.readyState < 2 || video.paused) return;
+      if (isMonitoringRef.current) return;
+
+      try {
+        isMonitoringRef.current = true;
+        // scoreThreshold 0.35 ensures tracking is preserved during motion and head tilts
+        const detections = await faceapi
+          .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.35 }))
+          .withFaceLandmarks()
+          .withFaceDescriptors();
+
+        if (!isMounted || terminatedRef.current) return;
+
+        // ── SCENARIO 1: NO FACE DETECTED (Candidate stepping out of window) ──
+        if (detections.length === 0) {
+          multiFaceConsecutiveTicksRef.current = 0;
+          mismatchConsecutiveCountRef.current = 0;
+          zeroFaceConsecutiveTicksRef.current += 1;
+
+          // Candidate must be COMPLETELY out of window for at least 3 consecutive ticks (~2.4s)
+          // Normal movement, blinking, or scratching face will NOT cause false halts!
+          if (zeroFaceConsecutiveTicksRef.current >= 3) {
+            if (outOfFrameStartTimeRef.current === null) {
+              outOfFrameStartTimeRef.current = Date.now();
+              isSecurityHaltedRef.current = true;
+              setIsSecurityHalted(true);
+              setSecurityHaltReason("You are completely out of the camera window. Return within 5 seconds.");
+              try { window.speechSynthesis.cancel(); } catch { /* ignore */ }
+            }
+
+            const elapsedSecs = (Date.now() - outOfFrameStartTimeRef.current) / 1000;
+            const remainingSecs = Math.max(0, Math.ceil(5 - elapsedSecs));
+            setOutOfFrameCountdown(remainingSecs);
+
+            // If completely out of window for 5 or more seconds without returning -> TERMINATE
+            if (elapsedSecs >= 5) {
+              console.warn("[FaceProctor] Candidate out of window for > 5 seconds. Terminating interview.");
+              handleSecurityTermination(
+                "Interview terminated automatically: Candidate was completely out of camera window for more than 5 seconds."
+              );
+              return;
+            }
+          }
+          return;
+        }
+
+        // ── A FACE IS PRESENT IN WINDOW ─────────────────────────────────────
+        // Candidate is inside the frame -> Reset zero-face counter immediately
+        zeroFaceConsecutiveTicksRef.current = 0;
+
+        // If previously halted because candidate left the window, candidate has returned!
+        if (outOfFrameStartTimeRef.current !== null) {
+          outOfFrameStartTimeRef.current = null;
+          setOutOfFrameCountdown(null);
+          // If only 1 person in frame, immediately resume interview
+          if (detections.length === 1) {
+            console.log("[FaceProctor] Candidate returned to window! Resuming interview.");
+            isSecurityHaltedRef.current = false;
+            setIsSecurityHalted(false);
+            setSecurityHaltReason("");
+          }
+        }
+
+        // ── SCENARIO 2: MULTIPLE FACES DETECTED (> 1) ──────────────────────
+        if (detections.length > 1) {
+          mismatchConsecutiveCountRef.current = 0;
+          multiFaceConsecutiveTicksRef.current += 1;
+
+          // Require 2 consecutive ticks to confirm a second person is truly in frame
+          if (multiFaceConsecutiveTicksRef.current >= 2) {
+            console.warn("[FaceProctor] Another face detected in frame:", detections.length);
+            if (!isSecurityHaltedRef.current) {
+              faceViolationsRef.current += 1;
+              setFaceViolationsCount(faceViolationsRef.current);
+
+              // If it happens MORE THAN TWO TIMES (> 2, i.e. 3rd infraction) -> Terminate!
+              if (faceViolationsRef.current > 2) {
+                handleSecurityTermination(
+                  `Interview terminated automatically: Multiple faces were detected in the webcam stream ${faceViolationsRef.current} times (exceeded maximum 2 allowed infractions).`
+                );
+                return;
+              }
+
+              isSecurityHaltedRef.current = true;
+              setIsSecurityHalted(true);
+              setSecurityHaltReason(`Another face was detected in your camera window (${detections.length} persons). Only the verified candidate is permitted.`);
+              try { window.speechSynthesis.cancel(); } catch { /* ignore */ }
+            }
+          }
+          return;
+        }
+
+        // Only 1 face in view
+        multiFaceConsecutiveTicksRef.current = 0;
+
+        // ── SCENARIO 3: EXACTLY 1 FACE DETECTED ─────────────────────────────
+        const dist = faceapi.euclideanDistance(verifiedDescriptorRef.current, detections[0].descriptor);
+
+        // Threshold 0.65: Generous tolerance for natural movement, head tilt, spectacles, expressions
+        // Ensures candidate moving around in their chair NEVER triggers a false alarm!
+        if (dist <= 0.65) {
+          // Real verified candidate is confirmed!
+          mismatchConsecutiveCountRef.current = 0;
+
+          if (isSecurityHaltedRef.current) {
+            console.log("[FaceProctor] Verified candidate confirmed! Resuming interview.");
+            isSecurityHaltedRef.current = false;
+            setIsSecurityHalted(false);
+            setSecurityHaltReason("");
+          }
+          return;
+        }
+
+        // If dist > 0.65, someone else is sitting in front of the camera
+        // Require 3 consecutive ticks (~2.4s) to confirm it is actually an unauthorized person
+        mismatchConsecutiveCountRef.current += 1;
+
+        if (mismatchConsecutiveCountRef.current >= 3) {
+          console.warn("[FaceProctor] Confirmed unauthorized face mismatch! Distance:", dist.toFixed(3));
+          if (!isSecurityHaltedRef.current) {
+            faceViolationsRef.current += 1;
+            setFaceViolationsCount(faceViolationsRef.current);
+
+            // If it happens MORE THAN TWO TIMES (> 2, i.e. 3rd infraction) -> Terminate!
+            if (faceViolationsRef.current > 2) {
+              handleSecurityTermination(
+                `Interview terminated automatically: An unauthorized face was detected ${faceViolationsRef.current} times during the proctored interview (exceeded maximum 2 allowed infractions).`
+              );
+              return;
+            }
+
+            isSecurityHaltedRef.current = true;
+            setIsSecurityHalted(true);
+            setSecurityHaltReason(`Another face was detected (Face mismatch distance: ${dist.toFixed(2)}). Interview halted until the verified candidate returns.`);
+            try { window.speechSynthesis.cancel(); } catch { /* ignore */ }
+          }
+        }
+      } catch (err) {
+        console.warn("[FaceProctor] Detection tick notice:", err);
+      } finally {
+        isMonitoringRef.current = false;
+      }
+    };
+
+    const timer = setInterval(monitorFaceTick, intervalTime);
+    return () => {
+      isMounted = false;
+      clearInterval(timer);
+    };
+  }, [isVerified, terminated, isFinished, handleSecurityTermination]);
+
+  // ── Timer (Paused while security halted) ───────────────────────────────────
+  useEffect(() => {
+    if (isFinished || terminated || questions.length === 0 || isSecurityHalted) return;
     const t = setInterval(() => setElapsedSec(s => s + 1), 1000);
     return () => clearInterval(t);
-  }, [isFinished, terminated, questions.length]);
+  }, [isFinished, terminated, questions.length, isSecurityHalted]);
 
   const formatTime = (s: number) => {
     const m = Math.floor(s / 60).toString().padStart(2, "0");
@@ -570,6 +795,12 @@ const InterviewRoom = () => {
       setLiveTranscript("");
       manualAnswerRef.current = "";
 
+      // Wait if security halted before asking question
+      while (isSecurityHaltedRef.current && !terminatedRef.current) {
+        await new Promise((r) => setTimeout(r, 400));
+      }
+      if (terminatedRef.current) break;
+
       // Speak the initial question
       setAiMode("speaking");
       await speak(questionText, isTerminated);
@@ -583,23 +814,30 @@ const InterviewRoom = () => {
 
       // Conversational interaction loop on THIS question (handles candidate questions, clarifications, followups)
       while (!questionResolved && turnCount < 4 && !terminatedRef.current) {
+        // Wait if security halted before candidate turn
+        while (isSecurityHaltedRef.current && !terminatedRef.current) {
+          await new Promise((r) => setTimeout(r, 400));
+        }
+        if (terminatedRef.current) break;
+
         setAiMode("listening");
         setLiveTranscript("");
         manualAnswerRef.current = "";
 
         const spokenAnswer = await listenForAnswer(
           (t) => {
-            if (!terminatedRef.current) {
+            if (!terminatedRef.current && !isSecurityHaltedRef.current) {
               setLiveTranscript(t);
               manualAnswerRef.current = t;
             }
           },
-          (s) => { if (!terminatedRef.current) setSilenceCountdown(s); },
+          (s) => { if (!terminatedRef.current && !isSecurityHaltedRef.current) setSilenceCountdown(s); },
           isTerminated,
           (rec) => { activeRecognitionRef.current = rec; },
           (submitFn) => { submitCurrentAnswerRef.current = submitFn; },
           () => manualAnswerRef.current,
           mediaStreamRef.current,
+          () => isSecurityHaltedRef.current,
         );
         if (terminatedRef.current) break;
 
@@ -742,12 +980,12 @@ const InterviewRoom = () => {
     }
   }, [respondToCandidate, computeFinalScore, isTerminated, state.applicationId]);
 
-  // Start on mount when questions are ready
+  // Start when questions are ready AND identity has been verified
   useEffect(() => {
-    if (questions.length > 0 && !runningRef.current && !terminatedRef.current) {
+    if (isVerified && questions.length > 0 && !runningRef.current && !terminatedRef.current) {
       runInterview(questions);
     }
-  }, [questions, runInterview]);
+  }, [isVerified, questions, runInterview]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // NO QUESTIONS / DIRECT ACCESS SCREEN
@@ -781,34 +1019,68 @@ const InterviewRoom = () => {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // TERMINATED SCREEN
+  // PRE-INTERVIEW BIOMETRIC FACE VERIFICATION GATE
+  // ─────────────────────────────────────────────────────────────────────────
+  if (!isVerified) {
+    return (
+      <FaceVerificationGate
+        onVerified={(descriptor) => {
+          console.log("[InterviewRoom] ✅ Biometric Face verified! Initializing session.");
+          verifiedDescriptorRef.current = descriptor;
+          setIsVerified(true);
+        }}
+        onFailed={() => {
+          navigate("/candidate/dashboard");
+        }}
+      />
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // TERMINATED SCREEN (Security violation or manual exit)
   // ─────────────────────────────────────────────────────────────────────────
   if (terminated) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="text-center max-w-md">
-          <AlertTriangle className="w-20 h-20 text-destructive mx-auto mb-6 animate-pulse" />
+        <div className="text-center max-w-lg p-8 rounded-2xl bg-card border border-destructive/40 shadow-2xl">
+          <div className="w-16 h-16 rounded-full bg-destructive/10 border border-destructive/30 flex items-center justify-center mx-auto mb-5">
+            <AlertTriangle className="w-9 h-9 text-destructive animate-pulse" />
+          </div>
           <h1
-            className="font-display text-4xl text-destructive tracking-wider mb-4 neon-glow"
+            className="font-display text-3xl text-destructive tracking-wider mb-3 neon-glow"
             style={{ textShadow: "0 0 10px hsl(0 84% 60% / 0.6), 0 0 40px hsl(0 84% 60% / 0.3)" }}
           >
-            INTERVIEW ENDED
+            {securityTerminated ? "INTERVIEW TERMINATED" : "INTERVIEW ENDED"}
           </h1>
-          <p className="text-muted-foreground mb-8">
-            Session has been completely terminated. All audio and recognition services have been stopped.
+          <p className="text-sm text-foreground/90 font-medium mb-3">
+            {securityTerminationReason || "Session has been terminated. All recording and evaluation services have been stopped."}
           </p>
+          {securityTerminated && (
+            <div className="mb-6 p-4 rounded-xl bg-destructive/10 border border-destructive/30 text-xs text-destructive text-left space-y-2">
+              <div className="font-semibold flex items-center gap-1.5 text-sm">
+                <AlertOctagon className="w-4 h-4 text-destructive" /> Automated Proctoring Rule Exceeded
+              </div>
+              <p>
+                An unauthorized face or secondary person was detected <strong>{faceViolationsCount} times</strong> during this session.
+                Per examination integrity policy, more than 2 violations result in mandatory termination.
+              </p>
+              <div className="text-[11px] text-muted-foreground pt-1 border-t border-destructive/20">
+                Timestamp: {new Date().toLocaleTimeString()} · Candidate Biometrics Enforced
+              </div>
+            </div>
+          )}
           <div className="flex gap-3 justify-center">
             <Link
               to="/candidate/practice"
-              className="px-6 py-2.5 rounded-lg border border-border/50 text-foreground text-sm hover:bg-muted/30 transition-all"
+              className="px-6 py-2.5 rounded-lg border border-border/50 text-foreground text-sm hover:bg-muted/30 transition-all cursor-pointer"
             >
               Practice Mode
             </Link>
             <Link
               to="/candidate/dashboard"
-              className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 transition-all"
+              className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 transition-all cursor-pointer shadow-lg shadow-primary/20"
             >
-              Dashboard
+              Return to Dashboard
             </Link>
           </div>
         </div>
@@ -1012,7 +1284,15 @@ const InterviewRoom = () => {
         {/* Candidate camera + live transcript - RIGHT */}
         <div className="flex flex-col gap-4">
           <GlassCard variant="neon" hover={false} className="aspect-video flex items-center justify-center relative overflow-hidden p-0">
-            <CandidateCamera enabled={!terminated} onStream={handleMediaStream} />
+            <CandidateCamera 
+              enabled={!terminated} 
+              onStream={handleMediaStream} 
+              onVideoReady={(el) => { candidateVideoRef.current = el; }}
+            />
+            <div className="absolute top-4 left-4 z-10 flex items-center gap-1.5 bg-black/60 px-2.5 py-1 rounded-full backdrop-blur-sm border border-emerald-500/40 text-emerald-400">
+              <Shield className="w-3 h-3 text-emerald-400" />
+              <span className="text-[10px] font-semibold tracking-wider">AI PROCTOR ACTIVE</span>
+            </div>
             <div className="absolute top-4 right-4 z-10 flex items-center gap-2 bg-black/60 px-2.5 py-1 rounded-full backdrop-blur-sm border border-white/10">
               <div className="w-2 h-2 rounded-full bg-destructive animate-glow-pulse" />
               <span className="text-[10px] font-semibold text-white tracking-wider">LIVE FEED</span>
@@ -1169,6 +1449,89 @@ const InterviewRoom = () => {
           </div>
         </GlassCard>
       </div>
+
+      {/* ── SECURITY HALT OVERLAY (When other/unauthorized face detected OR candidate leaves frame) ── */}
+      {isSecurityHalted && (
+        <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="max-w-md w-full bg-card border-2 border-amber-500/50 rounded-2xl p-6 text-center space-y-5 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            {outOfFrameCountdown !== null ? (
+              /* Out of Frame 5-second countdown mode */
+              <>
+                <div className="relative w-24 h-24 mx-auto flex items-center justify-center">
+                  <div className="absolute inset-0 rounded-full border-4 border-rose-500/20 animate-ping" />
+                  <div className="w-20 h-20 rounded-full bg-rose-500/10 border-2 border-rose-500 flex items-center justify-center shadow-[0_0_20px_rgba(244,63,94,0.4)]">
+                    <span className="font-mono text-3xl font-extrabold text-rose-400">
+                      {outOfFrameCountdown}s
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <span className="inline-block px-3 py-1 rounded-full text-[11px] font-bold tracking-wider uppercase bg-rose-500/10 border border-rose-500/30 text-rose-400 mb-2">
+                    OUT OF FRAME · 5s AUTO-TERMINATION
+                  </span>
+                  <h2 className="text-xl font-bold text-foreground">Please Return to Camera Frame</h2>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Your face is not visible. Return to camera view within <strong className="text-rose-400">{outOfFrameCountdown} seconds</strong> or the session will terminate automatically.
+                  </p>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 text-left space-y-1">
+                  <p className="font-semibold text-rose-200">⚠️ Continuous Proctoring Rule:</p>
+                  <p className="text-[11px] opacity-90">
+                    Candidate must remain facing the camera throughout the entire assessment.
+                  </p>
+                </div>
+              </>
+            ) : (
+              /* Unauthorized face or multiple faces mode */
+              <>
+                <div className="w-16 h-16 rounded-full bg-amber-500/10 border border-amber-500/40 flex items-center justify-center mx-auto animate-pulse">
+                  <ShieldAlert className="w-8 h-8 text-amber-400" />
+                </div>
+
+                <div>
+                  <span className="inline-block px-3 py-1 rounded-full text-[11px] font-bold tracking-wider uppercase bg-amber-500/10 border border-amber-500/30 text-amber-400 mb-2">
+                    SECURITY PROTOCOL HALT
+                  </span>
+                  <h2 className="text-xl font-bold text-foreground">Interview Temporarily Halted</h2>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {securityHaltReason || "An unverified or secondary face was detected in your webcam feed."}
+                  </p>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-left space-y-2">
+                  <div className="flex items-center justify-between font-semibold text-amber-300">
+                    <span>Infraction Counter</span>
+                    <span className="font-mono text-xs px-2.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 font-bold">
+                      {faceViolationsCount} / 2 Allowed
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-amber-200/80">
+                    ⚠️ If an unauthorized face is detected <strong>more than 2 times</strong>, your session will be automatically terminated.
+                  </p>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-muted/30 border border-border/40 text-xs text-muted-foreground text-left space-y-1.5">
+                  <p className="font-semibold text-foreground flex items-center gap-1.5">
+                    <UserCheck className="w-4 h-4 text-emerald-400" /> How to Resume:
+                  </p>
+                  <ul className="list-disc pl-4 space-y-1 text-[11px]">
+                    <li>Ensure only the registered candidate is in the camera frame.</li>
+                    <li>Face the webcam directly with your face unobstructed.</li>
+                    <li>Normal clothing and spectacles are fully supported & ignored by the biometrics model.</li>
+                  </ul>
+                </div>
+              </>
+            )}
+
+            <div className="flex items-center justify-center gap-2 text-xs text-primary font-medium animate-pulse pt-1">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              <span>Scanning camera feed... interview will resume once verified face is restored</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
