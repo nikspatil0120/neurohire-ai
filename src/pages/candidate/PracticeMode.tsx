@@ -112,7 +112,11 @@ const PracticeMode = () => {
           questions:         data.questions         || [],
           candidateProfile:  candidate,
           jobData:           job,
-          applicationId:     "",  // practice — no applicationId, score won't be saved
+          applicationId:     "",
+          isPractice:        true,
+          candidateId:       user?.id || "",
+          candidateEmail:    user?.email || "",
+          candidateName:     user?.name || "",
         },
       });
     } catch (err: any) {

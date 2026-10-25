@@ -6,10 +6,11 @@ import {
   LayoutDashboard, FilePlus, Database, BarChart2, MessageCircle, LogOut,
   Briefcase, Users, Search, Filter, Calendar, Clock, ChevronDown,
   Mail, User, Briefcase as BriefcaseIcon, CheckCircle, XCircle,
-  AlertCircle, RefreshCw, Eye, X,
+  AlertCircle, RefreshCw, Eye, X, Brain, FileText,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
+import { AIReportModal } from "@/components/recruiter/AIReportModal";
 
 const API = "http://localhost:8000/api/v1";
 
@@ -40,6 +41,9 @@ interface Application {
   application_status: string;
   current_round: string;
   test_status: string;
+  final_interview_score?: number;
+  interview_report?: any;
+  scores?: any;
   applied_at: string;
   created_at: string;
   updated_at: string;
@@ -75,6 +79,40 @@ const Applicants = () => {
   const [selectedApp,   setSelectedApp]   = useState<Application | null>(null);
   const [showDetail,    setShowDetail]    = useState(false);
   const [updatingStatus,setUpdatingStatus]= useState(false);
+  const [aiReportModalOpen, setAiReportModalOpen] = useState(false);
+  const [activeReportData, setActiveReportData] = useState<any>(null);
+  const [loadingReport, setLoadingReport] = useState(false);
+
+  const openAIReport = async (app: Application) => {
+    if (app.interview_report) {
+      setActiveReportData(app.interview_report);
+      setAiReportModalOpen(true);
+      return;
+    }
+    setLoadingReport(true);
+    try {
+      const res = await fetch(`${API}/interview-ai/job-report/${app._id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setActiveReportData(data.report);
+        setAiReportModalOpen(true);
+      } else {
+        toast({
+          title: "Report Not Available",
+          description: "No AI interview report found for this candidate yet.",
+          variant: "destructive",
+        });
+      }
+    } catch (err) {
+      toast({
+        title: "Error",
+        description: "Failed to fetch interview report",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingReport(false);
+    }
+  };
 
   // Filters & URL search params
   const { user } = useAuth();
@@ -387,10 +425,23 @@ const Applicants = () => {
 
                       {/* Actions */}
                       <td className="px-4 py-3">
-                        <button onClick={() => { setSelectedApp(app); setShowDetail(true); }}
-                          className="p-1.5 rounded-lg bg-primary/20 text-primary hover:bg-primary/30 transition-all">
-                          <Eye className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <button onClick={() => { setSelectedApp(app); setShowDetail(true); }}
+                            className="p-1.5 rounded-lg bg-primary/20 text-primary hover:bg-primary/30 transition-all"
+                            title="View Application Details"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          {(app.interview_report || app.final_interview_score !== undefined || app.application_status === "interview_completed") && (
+                            <button
+                              onClick={() => openAIReport(app)}
+                              className="p-1.5 rounded-lg bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 transition-all border border-cyan-500/30"
+                              title="View AI Technical Interview Report"
+                            >
+                              <Brain className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -452,6 +503,32 @@ const Applicants = () => {
                 </div>
               </div>
 
+              {/* AI Interview Report Preview if available */}
+              {(selectedApp.interview_report || selectedApp.final_interview_score !== undefined || selectedApp.application_status === "interview_completed") && (
+                <div className="p-4 rounded-xl bg-gradient-to-r from-primary/10 to-cyan-500/10 border border-primary/30 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center text-primary">
+                      <Brain className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-foreground">AI Technical Interview</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        Overall Score: <strong className="text-primary">{selectedApp.final_interview_score ?? selectedApp.interview_report?.scores?.overall_score ?? "Completed"} / 10</strong>
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowDetail(false);
+                      openAIReport(selectedApp);
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-all shadow-md shadow-primary/20"
+                  >
+                    View Report
+                  </button>
+                </div>
+              )}
+
               {/* Current status */}
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Current Status</span>
@@ -479,6 +556,15 @@ const Applicants = () => {
           </div>
         </div>
       )}
+      {/* ── AI Technical Interview Report Modal ── */}
+      <AIReportModal
+        isOpen={aiReportModalOpen}
+        onClose={() => setAiReportModalOpen(false)}
+        report={activeReportData}
+        candidateName={selectedApp?.candidate_name}
+        candidateEmail={selectedApp?.candidate_email}
+        jobTitle={selectedApp?.job_title}
+      />
     </DashboardLayout>
   );
 };

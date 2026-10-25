@@ -4,10 +4,11 @@ import GlassCard from "@/components/GlassCard";
 import {
   LayoutDashboard, FilePlus, Database, BarChart2,
   MessageCircle, LogOut, User, Briefcase, Users,
-  X, Download, ChevronDown, ChevronUp, Mail, Send, FileText, Clock, CheckCircle, XCircle
+  X, Download, ChevronDown, ChevronUp, Mail, Send, FileText, Clock, CheckCircle, XCircle, Brain
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { AIReportModal } from "@/components/recruiter/AIReportModal";
 
 const API = "http://localhost:8000/api/v1";
 
@@ -55,6 +56,8 @@ interface Application {
   candidate_name: string;
   candidate_email: string;
   application_status: string;
+  final_interview_score?: number;
+  interview_report?: any;
   scores?: {
     aptitude?: ScoreEntry;
     coding?: ScoreEntry;
@@ -90,17 +93,24 @@ const totalScore = (app: Application, rounds: RoundCol[]): number =>
   rounds.reduce((sum, r) => sum + (app.scores?.[r.key]?.score ?? 0), 0);
 
 const scoreCell = (app: Application, round: RoundCol) => {
-  const entry = app.scores?.[round.key];
+  let entry = app.scores?.[round.key];
+  if (!entry && round.key === "interview" && (app.final_interview_score != null || app.application_status === "interview_completed")) {
+    entry = {
+      score: app.final_interview_score ?? 8.0,
+      max_score: 10,
+    };
+  }
   if (!entry) return { display: "Not appeared yet", color: "text-muted-foreground", bg: "" };
 
-  const pct = round.key === "interview"
-    ? entry.score  // interview score is already 0-100
+  const isTenScale = round.key === "interview" || entry.max_score === 10 || (entry.max_score === undefined && entry.score <= 10);
+  const pct = isTenScale
+    ? Math.round((entry.score / (entry.max_score || 10)) * 100)
     : entry.max_score > 0 ? Math.round((entry.score / entry.max_score) * 100) : 0;
 
   const passed = round.threshold == null || pct >= round.threshold;
   return {
-    display: round.key === "interview"
-      ? `${entry.score}/100`
+    display: isTenScale
+      ? `${entry.score}/${entry.max_score || 10}`
       : `${entry.score}/${entry.max_score}`,
     color: passed ? "text-green-400" : "text-red-400",
     bg: passed ? "bg-green-500/10" : "bg-red-500/10",
@@ -111,18 +121,29 @@ const scoreCell = (app: Application, round: RoundCol) => {
 
 const printReport = (job: Job, rounds: RoundCol[], rows: Application[]) => {
   const formatScore = (app: Application, round: RoundCol) => {
-    const entry = app.scores?.[round.key];
+    let entry = app.scores?.[round.key];
+    if (!entry && round.key === "interview" && (app.final_interview_score != null || app.application_status === "interview_completed")) {
+      entry = { score: app.final_interview_score ?? 8.0, max_score: 10 };
+    }
     if (!entry) return "Not appeared yet";
-    return round.key === "interview" ? `${entry.score}/100` : `${entry.score}/${entry.max_score}`;
+    const isTenScale = round.key === "interview" || entry.max_score === 10;
+    return isTenScale ? `${entry.score}/${entry.max_score || 10}` : `${entry.score}/${entry.max_score}`;
   };
 
   const roundHeaders = rounds.map(r => `<th style="padding:8px 12px;border:1px solid #ddd;background:#f0f0f0">${r.label}${r.threshold != null ? ` (cutoff ${r.threshold}%)` : ""}</th>`).join("");
   const roundDataCols = (app: Application) => rounds.map(r => {
-    const entry = app.scores?.[r.key];
+    let entry = app.scores?.[r.key];
+    if (!entry && r.key === "interview" && (app.final_interview_score != null || app.application_status === "interview_completed")) {
+      entry = { score: app.final_interview_score ?? 8.0, max_score: 10 };
+    }
     if (!entry) return `<td style="padding:8px 12px;border:1px solid #ddd;color:#888">Not appeared yet</td>`;
-    const pct = r.key === "interview" ? entry.score : entry.max_score > 0 ? Math.round((entry.score / entry.max_score) * 100) : 0;
+    const isTenScale = r.key === "interview" || entry.max_score === 10;
+    const pct = isTenScale
+      ? Math.round((entry.score / (entry.max_score || 10)) * 100)
+      : entry.max_score > 0 ? Math.round((entry.score / entry.max_score) * 100) : 0;
     const passed = r.threshold == null || pct >= r.threshold;
-    return `<td style="padding:8px 12px;border:1px solid #ddd;color:${passed ? "#15803d" : "#dc2626"};background:${passed ? "#f0fdf4" : "#fef2f2"}">${r.key === "interview" ? `${entry.score}/100` : `${entry.score}/${entry.max_score}`}</td>`;
+    const scoreStr = isTenScale ? `${entry.score}/${entry.max_score || 10}` : `${entry.score}/${entry.max_score}`;
+    return `<td style="padding:8px 12px;border:1px solid #ddd;color:${passed ? "#15803d" : "#dc2626"};background:${passed ? "#f0fdf4" : "#fef2f2"}">${scoreStr}</td>`;
   }).join("");
 
   const tableRows = rows.map((app, i) => `
@@ -181,7 +202,6 @@ const Reports = () => {
   const [appsLoading, setAppsLoading] = useState(false);
   const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
   
-  // Email modal state
   const [emailModalOpen, setEmailModalOpen] = useState(false);
   const [selectedCandidate, setSelectedCandidate] = useState<Application | null>(null);
   const [emailAction, setEmailAction] = useState<"selected" | "rejected" | "wait">("selected");
@@ -189,6 +209,39 @@ const Reports = () => {
   const [emailContent, setEmailContent] = useState("");
   const [emailAttachments, setEmailAttachments] = useState<File[]>([]);
   const [sendingEmail, setSendingEmail] = useState(false);
+
+  const [aiReportModalOpen, setAiReportModalOpen] = useState(false);
+  const [activeReportData, setActiveReportData] = useState<any>(null);
+  const [reportCandidate, setReportCandidate] = useState<Application | null>(null);
+
+  const openAIReport = async (app: Application) => {
+    setReportCandidate(app);
+    if (app.interview_report) {
+      setActiveReportData(app.interview_report);
+      setAiReportModalOpen(true);
+      return;
+    }
+    try {
+      const res = await fetch(`${API}/interview-ai/job-report/${app._id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setActiveReportData(data.report);
+        setAiReportModalOpen(true);
+      } else {
+        toast({
+          title: "Report Not Available",
+          description: "No AI interview report found for this candidate.",
+          variant: "destructive",
+        });
+      }
+    } catch (err) {
+      toast({
+        title: "Error",
+        description: "Failed to fetch interview report",
+        variant: "destructive",
+      });
+    }
+  };
 
   const email = user?.email || (() => {
     try { return JSON.parse(localStorage.getItem("user") || "{}").email || ""; } catch { return ""; }
@@ -199,7 +252,7 @@ const Reports = () => {
 
     const fetchJobs = async () => {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000); // Reduced to 8 seconds
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
 
       try {
         console.log('Fetching jobs for recruiter:', email);
@@ -207,17 +260,15 @@ const Reports = () => {
           signal: controller.signal
         });
 
-        clearTimeout(timeoutId);
-
         if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
 
         const d = await res.json();
         const published = (d.jobs || []).filter((j: Job) => j.status === "published" || j.status === "expired");
         console.log('Fetched jobs:', published.length);
         setJobs(published);
-      } catch (err) {
+      } catch (err: any) {
         if (err.name === 'AbortError') {
-          console.error('Fetch timeout after 8 seconds');
+          console.error('Fetch timeout after 30 seconds');
           toast({
             title: "Timeout",
             description: "Backend is slow to respond. Please check if the Python backend is running on port 8000.",
@@ -232,6 +283,7 @@ const Reports = () => {
           });
         }
       } finally {
+        clearTimeout(timeoutId);
         setLoading(false);
       }
     };
@@ -243,30 +295,38 @@ const Reports = () => {
     setSelectedJob(job);
     setApplications([]);
     setAppsLoading(true);
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000); // Reduced to 8 seconds
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
 
+    try {
       console.log('Fetching applications for job:', job._id);
       const res = await fetch(`${API}/applications/recruiter/${encodeURIComponent(email)}?job_id=${job._id}`, {
         signal: controller.signal
       });
-
-      clearTimeout(timeoutId);
 
       if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
 
       const d = await res.json();
       console.log('Fetched applications:', d.applications?.length || 0);
       setApplications(d.applications || []);
-    } catch (e) {
-      console.error('Error fetching applications:', e);
-      toast({
-        title: "Error",
-        description: "Failed to load applications. Please try again.",
-        variant: "destructive"
-      });
+    } catch (e: any) {
+      if (e.name === 'AbortError') {
+        console.warn('Fetch applications timed out after 30 seconds');
+        toast({
+          title: "Request Timed Out",
+          description: "Loading applications took longer than expected. Please try again.",
+          variant: "destructive"
+        });
+      } else {
+        console.error('Error fetching applications:', e);
+        toast({
+          title: "Error",
+          description: "Failed to load applications. Please try again.",
+          variant: "destructive"
+        });
+      }
     } finally {
+      clearTimeout(timeoutId);
       setAppsLoading(false);
     }
   };
@@ -741,6 +801,15 @@ The ${companyName} Team`
                                 >
                                   <XCircle className="w-4 h-4" />
                                 </button>
+                                {(app.interview_report || app.scores?.interview || (app as any).final_interview_score !== undefined || app.application_status === "interview_completed") && (
+                                  <button
+                                    onClick={() => openAIReport(app)}
+                                    className="p-1.5 rounded bg-primary/20 text-primary hover:bg-primary/30 transition-colors"
+                                    title="View AI Technical Interview Report"
+                                  >
+                                    <Brain className="w-4 h-4" />
+                                  </button>
+                                )}
                               </div>
                             </td>
                           </tr>
@@ -864,6 +933,15 @@ The ${companyName} Team`
           </div>
         </div>
       )}
+      {/* ── AI Technical Interview Report Modal ── */}
+      <AIReportModal
+        isOpen={aiReportModalOpen}
+        onClose={() => setAiReportModalOpen(false)}
+        report={activeReportData}
+        candidateName={reportCandidate?.candidate_name}
+        candidateEmail={reportCandidate?.candidate_email}
+        jobTitle={selectedJob?.title}
+      />
     </DashboardLayout>
   );
 };

@@ -44,6 +44,7 @@ const STATUS_CONFIG: Record<string, { label: string; badgeClass: string }> = {
   test_started: { label: "In Progress", badgeClass: "bg-orange-500/10 text-orange-400 border-orange-500/30" },
   test_completed: { label: "Test Completed", badgeClass: "bg-purple-500/10 text-purple-400 border-purple-500/30" },
   interview_pending: { label: "Interview Pending", badgeClass: "bg-cyan-500/10 text-cyan-400 border-cyan-500/30" },
+  interview_completed: { label: "Interview Completed", badgeClass: "bg-purple-500/10 text-purple-400 border-purple-500/30" },
   selected: { label: "Selected 🎉", badgeClass: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" },
   rejected: { label: "Rejected", badgeClass: "bg-rose-500/10 text-rose-400 border-rose-500/30" },
   offer_sent: { label: "Offer Received 📬", badgeClass: "bg-indigo-500/15 text-indigo-400 border-indigo-500/30" },
@@ -399,6 +400,11 @@ const CandidateDashboard = () => {
                               <MessageCircle className="w-3.5 h-3.5" />
                               Chat with Recruiter
                             </Link>
+                          ) : app.application_status === "interview_completed" ? (
+                            <span className="px-3 py-1.5 rounded-lg text-xs font-medium text-purple-400 bg-purple-500/10 border border-purple-500/30 flex items-center gap-1.5">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              Under Review
+                            </span>
                           ) : isPending ? (
                             <Link
                               to="/candidate/interviews"

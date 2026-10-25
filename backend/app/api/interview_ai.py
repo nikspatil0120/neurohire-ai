@@ -17,6 +17,8 @@ import httpx
 import json
 import asyncio
 import logging
+from datetime import datetime, timezone
+from bson import ObjectId
 
 from app.config import settings
 
@@ -28,9 +30,9 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 GEMINI_MODEL          = "gemini-3.7-flash"
 GROQ_MODEL            = "openai/gpt-oss-120b"
-NUM_MAIN_QUESTIONS    = 3
+NUM_MAIN_QUESTIONS    = 1
 NUM_RAPPORT_QUESTIONS = 2
-MAX_FOLLOWUPS         = 3
+MAX_FOLLOWUPS         = 1
 FOLLOWUP_BASE_THRESH  = 0.6
 FOLLOWUP_HYSTERESIS   = 0.15
 FOLLOWUP_MIN_THRESH   = 0.25
@@ -73,31 +75,33 @@ class GenerateQuestionsRequest(BaseModel):
 # Shape returned per rapport question from generate-questions
 class RapportQuestion(BaseModel):
     id:       int
-    kind:     str   # "greeting" | "self_intro"
+    kind:     str = "greeting"  # "greeting" | "self_intro"
     question: str
+    category: str = "rapport"
+    topic:    str = "Introduction"
 
 # Shape returned per main question from generate-questions
 # (extends the existing shape — adds difficulty)
 class GenerateQuestionsResponseQuestion(BaseModel):
     id:         int
-    category:   str
-    topic:      str
+    category:   str = "technical"
+    topic:      str = "Technical"
     transition: str = ""
     question:   str
     key_points: List[str] = []
     ideal_depth: str = ""
-    difficulty: str  # "basic" | "intermediate" | "advanced"
+    difficulty: str = "intermediate"  # "basic" | "intermediate" | "advanced"
 
 class Exchange(BaseModel):
-    question: str
-    answer:   str
+    question: str = ""
+    answer:   str = ""
 
 class EvaluateAnswerRequest(BaseModel):
     main_question:       str
     category:            str = "technical"   # "rapport" short-circuits scoring
     key_points:          List[str] = []
     ideal_depth:         str = ""
-    exchanges:           List[Exchange]
+    exchanges:           List[Exchange] = []
     full_transcript_text: str = ""
     strength_label:      str = ""
     current_difficulty:  str = "basic"       # difficulty of the current main question
@@ -105,25 +109,25 @@ class EvaluateAnswerRequest(BaseModel):
 
 class FollowupRequest(BaseModel):
     main_question:       str
-    exchanges:           List[Exchange]
+    exchanges:           List[Exchange] = []
     full_transcript_text: str = ""
     strength_label:      str = ""
     mode:                str = "deepen"           # "deepen" | "rephrase" | "clarify"
     target_difficulty:   Optional[str] = None     # e.g. "advanced" — hint for deepen mode
 
 class TranscriptItem(BaseModel):
-    id:         Any
-    category:   str          # now includes "rapport" as a possible value
-    topic:      str
+    id:         Any = None
+    category:   Optional[str] = "general"          # includes "rapport", "technical", etc.
+    topic:      Optional[str] = "General"
     key_points: List[str] = []
-    exchanges:  List[Exchange]
+    exchanges:  List[Exchange] = []
     final_eval: Optional[dict] = None
     scored:     bool = True  # False for rapport items — excluded from final scoring
 
 class FinalScoreRequest(BaseModel):
-    candidate:  CandidateProfile
-    job:        JobData
-    transcript: List[TranscriptItem]
+    candidate:  Optional[CandidateProfile] = None
+    job:        Optional[JobData] = None
+    transcript: List[TranscriptItem] = []
 
 class ConversationalTurnRequest(BaseModel):
     main_question:       str
@@ -133,6 +137,18 @@ class ConversationalTurnRequest(BaseModel):
     candidate_utterance: str
     exchanges:           List[Exchange] = []
     attempt_number:      int = 0
+
+class SaveInterviewReportRequest(BaseModel):
+    interview_type:   str = "practice"  # "practice" or "job"
+    candidate_id:     str = ""
+    candidate_email:  Optional[str] = ""
+    candidate_name:   Optional[str] = ""
+    job_title:        Optional[str] = "Interview Session"
+    company:          Optional[str] = ""
+    application_id:   Optional[str] = ""
+    report:           dict = {}
+    transcript:       List[Any] = []
+    signals:          Optional[dict] = None
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -802,6 +818,216 @@ async def final_score(req: FinalScoreRequest):
         raise
     except Exception as e:
         logger.error(f"final_score error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/save-report")
+async def save_interview_report(req: SaveInterviewReportRequest):
+    """
+    Save interview report after interview completion.
+    - If practice interview: saves into `practice_reports` collection for candidate dashboard review.
+    - If real job interview: saves into `job_interview_reports` collection and updates `applications` document
+      with status 'interview_completed', final score, and full interview report for recruiter review.
+    """
+    try:
+        from app.core.database import get_mongo_db
+        mongo_db = get_mongo_db()
+        if mongo_db is None:
+            raise HTTPException(status_code=503, detail="Database not available")
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        r = req.report or {}
+
+        def to_pct(val, fallback=70):
+            if isinstance(val, (int, float)):
+                if val <= 10:
+                    return round(val * 10)
+                return round(val)
+            return fallback
+
+        radar_metrics = [
+            {"label": "Technical", "value": to_pct(r.get("technical_score") or r.get("technical_correctness"))},
+            {"label": "Technical Depth", "value": to_pct(r.get("technical_depth"))},
+            {"label": "Problem Solving", "value": to_pct(r.get("problem_solving"))},
+            {"label": "Communication", "value": to_pct(r.get("communication_clarity"))},
+            {"label": "Behavioral Fit", "value": to_pct(r.get("behavioral_score") or r.get("behavioral_fit"))},
+        ]
+
+        report_doc = {
+            "interview_type": req.interview_type,
+            "candidate_id": str(req.candidate_id),
+            "candidate_email": req.candidate_email or "",
+            "candidate_name": req.candidate_name or "",
+            "job_title": req.job_title or "Interview Session",
+            "company": req.company or "",
+            "application_id": str(req.application_id or ""),
+            "created_at": now_iso,
+            "scores": {
+                "overall_score": r.get("overall_score"),
+                "technical_score": r.get("technical_score"),
+                "behavioral_score": r.get("behavioral_score"),
+                "technical_correctness": r.get("technical_correctness"),
+                "technical_depth": r.get("technical_depth"),
+                "problem_solving": r.get("problem_solving"),
+                "communication_clarity": r.get("communication_clarity"),
+                "behavioral_fit": r.get("behavioral_fit"),
+            },
+            "radar_metrics": radar_metrics,
+            "summary": r.get("summary", ""),
+            "strengths": r.get("strengths", []),
+            "weaknesses": r.get("weaknesses", []),
+            "transcript": req.transcript or [],
+            "signals": req.signals or {},
+        }
+
+        if req.interview_type == "practice":
+            insert_result = await mongo_db.practice_reports.insert_one(report_doc)
+            report_id = str(insert_result.inserted_id)
+            return {
+                "success": True,
+                "report_id": report_id,
+                "message": "Practice interview report saved successfully."
+            }
+        else:
+            # Job Interview
+            insert_result = await mongo_db.job_interview_reports.insert_one(report_doc)
+            report_id = str(insert_result.inserted_id)
+            report_doc["_id"] = report_id
+
+            target_app_id = req.application_id
+            if not target_app_id and req.candidate_email:
+                try:
+                    # Find candidate's most recent application for this job or in general
+                    q = {"candidate_email": req.candidate_email}
+                    matched_app = await mongo_db.applications.find_one(q, sort=[("_id", -1)])
+                    if matched_app:
+                        target_app_id = str(matched_app["_id"])
+                        logger.info(f"Resolved application_id {target_app_id} by candidate_email {req.candidate_email}")
+                except Exception as find_err:
+                    logger.warning(f"Could not resolve application by candidate email: {find_err}")
+
+            if target_app_id:
+                try:
+                    app_oid = ObjectId(target_app_id)
+                    overall = r.get("overall_score") or 0
+                    await mongo_db.applications.update_one(
+                        {"_id": app_oid},
+                        {
+                            "$set": {
+                                "application_status": "interview_completed",
+                                "test_status": "completed",
+                                "current_round": "interview",
+                                "final_interview_score": overall,
+                                "scores.interview": {
+                                    "score": overall,
+                                    "max_score": 10,
+                                    "notes": "AI Interview Completed",
+                                    "submitted_at": now_iso
+                                },
+                                "interview_report": report_doc,
+                                "updated_at": now_iso
+                            }
+                        }
+                    )
+                    logger.info(f"Updated application {target_app_id} with interview report and score {overall}")
+                except Exception as app_err:
+                    logger.warning(f"Could not update application document: {app_err}")
+
+            return {
+                "success": True,
+                "report_id": report_id,
+                "message": "Job interview report saved successfully."
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"save_interview_report error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/practice-reports")
+async def get_practice_reports(candidate_id: str):
+    """Get all practice interview reports for a candidate (newest first)."""
+    try:
+        from app.core.database import get_mongo_db
+        mongo_db = get_mongo_db()
+        if mongo_db is None:
+            raise HTTPException(status_code=503, detail="Database not available")
+
+        cursor = mongo_db.practice_reports.find(
+            {"candidate_id": candidate_id}
+        ).sort("created_at", -1)
+
+        reports = []
+        async for doc in cursor:
+            doc["_id"] = str(doc["_id"])
+            reports.append(doc)
+
+        return {"success": True, "reports": reports, "count": len(reports)}
+    except Exception as e:
+        logger.error(f"get_practice_reports error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/practice-reports/{report_id}")
+async def get_practice_report(report_id: str):
+    """Get a single practice interview report by ID."""
+    try:
+        from app.core.database import get_mongo_db
+        mongo_db = get_mongo_db()
+        if mongo_db is None:
+            raise HTTPException(status_code=503, detail="Database not available")
+
+        try:
+            r_oid = ObjectId(report_id)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid report_id")
+
+        doc = await mongo_db.practice_reports.find_one({"_id": r_oid})
+        if not doc:
+            raise HTTPException(status_code=404, detail="Practice report not found")
+
+        doc["_id"] = str(doc["_id"])
+        return {"success": True, "report": doc}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"get_practice_report error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/job-report/{application_id}")
+async def get_job_interview_report(application_id: str):
+    """Get the job interview report for an application (Recruiter view)."""
+    try:
+        from app.core.database import get_mongo_db
+        mongo_db = get_mongo_db()
+        if mongo_db is None:
+            raise HTTPException(status_code=503, detail="Database not available")
+
+        try:
+            app_oid = ObjectId(application_id)
+        except Exception:
+            app_oid = None
+
+        if app_oid:
+            app_doc = await mongo_db.applications.find_one({"_id": app_oid})
+            if app_doc and app_doc.get("interview_report"):
+                rep = app_doc["interview_report"]
+                if isinstance(rep, dict) and "_id" in rep:
+                    rep["_id"] = str(rep["_id"])
+                return {"success": True, "report": rep}
+
+        doc = await mongo_db.job_interview_reports.find_one({"application_id": application_id})
+        if not doc:
+            raise HTTPException(status_code=404, detail="Interview report not found for this application")
+
+        doc["_id"] = str(doc["_id"])
+        return {"success": True, "report": doc}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"get_job_interview_report error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

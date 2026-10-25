@@ -351,6 +351,10 @@ const Interviews = () => {
           candidateProfile:  candidate,
           jobData:           job,
           applicationId:     app._id,
+          isPractice:        false,
+          candidateId:       authUser?.id || app.candidate_id || "",
+          candidateEmail:    authUser?.email || app.candidate_email || "",
+          candidateName:     authUser?.name || app.candidate_name || "",
         };
 
         // If phase 2 slow crawl is already done → finish immediately
@@ -369,6 +373,10 @@ const Interviews = () => {
           candidateProfile:  {},
           jobData:           {},
           applicationId:     app?._id || "",
+          isPractice:        false,
+          candidateId:       authUser?.id || app?.candidate_id || "",
+          candidateEmail:    authUser?.email || app?.candidate_email || "",
+          candidateName:     authUser?.name || app?.candidate_name || "",
         }});
       }
     };
@@ -610,9 +618,18 @@ const Interviews = () => {
 
                 // For each round: did candidate attempt it? did they pass?
                 const roundState = (key: string): "not_attempted" | "passed" | "failed" => {
+                  if (key === "interview") {
+                    if (
+                      selectedApp.application_status === "interview_completed" ||
+                      selectedApp.final_interview_score != null ||
+                      selectedApp.interview_report != null
+                    ) {
+                      return "passed";
+                    }
+                  }
                   const s = (scores as any)[key];
                   if (!s || s.score === undefined) return "not_attempted";
-                  if (key === "interview") return s.score >= 6 ? "passed" : "failed"; // interview: pass if score ≥ 6/10
+                  if (key === "interview") return "passed"; // Interview is completed and submitted
 
                   const threshold = key === "aptitude"
                     ? (selectedApp.aptitude_threshold ?? null)
@@ -671,7 +688,7 @@ const Interviews = () => {
                 const st = selectedApp.application_status;
                 // cleared = rounds the candidate has passed
                 let clearedKeys: string[] = [];
-                if (st === "selected" || st === "rejected") {
+                if (st === "selected" || st === "rejected" || st === "interview_completed") {
                   // all done
                   clearedKeys = rounds.map(r => r.key);
                 } else if (st === "interview_pending") {
@@ -721,7 +738,9 @@ const Interviews = () => {
                             <div className="flex-1">
                               <p className="text-sm font-medium text-foreground">{round.label}</p>
                               <p className="text-xs text-green-400 mt-0.5">
-                                Completed ✓{s ? ` — ${s.score}/${s.max_score}` : ""}
+                                {round.key === "interview"
+                                  ? "Submitted to Recruiter ✓"
+                                  : `Completed ✓${s ? ` — ${s.score}/${s.max_score}` : ""}`}
                               </p>
                             </div>
                           </div>

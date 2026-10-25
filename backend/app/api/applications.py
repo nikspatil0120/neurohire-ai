@@ -90,8 +90,8 @@ def slot_helper(slot) -> dict:
     }
 
 
-def application_helper(app) -> dict:
-    return {
+def application_helper(app, include_report: bool = True) -> dict:
+    data = {
         "_id": str(app["_id"]),
         "candidate_id": str(app.get("candidate_id", "")),
         "candidate_email": app.get("candidate_email", ""),
@@ -109,10 +109,17 @@ def application_helper(app) -> dict:
         "test_status": app.get("test_status", "pending"),
         # Round scores – stored as { round: { score, max_score, notes, submitted_at } }
         "scores": app.get("scores", {}),
+        "final_interview_score": app.get("final_interview_score"),
         "applied_at": app.get("applied_at", ""),
         "created_at": app.get("created_at", ""),
         "updated_at": app.get("updated_at", ""),
     }
+    if include_report and "interview_report" in app:
+        rep = app["interview_report"]
+        if isinstance(rep, dict) and "_id" in rep:
+            rep["_id"] = str(rep["_id"])
+        data["interview_report"] = rep
+    return data
 
 
 # ─────────────────────────────────────────────
@@ -398,7 +405,7 @@ async def get_candidate_applications(candidate_id: str):
         cursor = mongodb["applications"].find(
             {"candidate_id": candidate_id}
         ).sort("created_at", -1)
-        apps = [application_helper(a) async for a in cursor]
+        apps = [application_helper(a, include_report=False) async for a in cursor]
         return {"success": True, "applications": apps, "count": len(apps)}
 
     except HTTPException:
@@ -574,12 +581,44 @@ async def update_application_status(application_id: str, update: ApplicationStat
             logger.error(f"Failed to queue status update email: {email_error}")
             # Don't fail status update if email fails
         
-        return {"success": True, "application": application_helper(updated)}
+        return {"success": True, "application": application_helper(updated, include_report=True)}
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"update_application_status error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/{application_id}")
+async def update_application(application_id: str, updates: dict):
+    """General update for application fields (e.g. status, score, interview result)."""
+    try:
+        mongodb = get_mongo_db()
+        if mongodb is None:
+            raise HTTPException(status_code=503, detail="Database not available")
+
+        try:
+            app_oid = ObjectId(application_id)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid application_id")
+
+        now = datetime.utcnow().isoformat()
+        updates["updated_at"] = now
+
+        result = await mongodb["applications"].update_one(
+            {"_id": app_oid},
+            {"$set": updates}
+        )
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Application not found")
+
+        updated = await mongodb["applications"].find_one({"_id": app_oid})
+        return {"success": True, "application": application_helper(updated, include_report=True)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"update_application error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -765,12 +804,19 @@ async def update_round_score(application_id: str, update: RoundScoreUpdate):
             "submitted_at": now,
         }
 
+        set_fields = {
+            f"scores.{update.round}": score_data,
+            "updated_at": now,
+        }
+        if update.round == "interview":
+            set_fields["application_status"] = "interview_completed"
+            set_fields["test_status"] = "completed"
+            set_fields["current_round"] = "interview"
+            set_fields["final_interview_score"] = update.score
+
         result = await mongodb["applications"].update_one(
             {"_id": app_oid},
-            {"$set": {
-                f"scores.{update.round}": score_data,
-                "updated_at": now,
-            }}
+            {"$set": set_fields}
         )
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Application not found")
