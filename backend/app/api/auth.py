@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from datetime import datetime, timedelta
 from typing import Optional
-import jwt
+import jwt  # Use PyJWT directly with version-aware API
 import bcrypt  # Use bcrypt directly
 from bson import ObjectId
 
@@ -56,7 +56,7 @@ async def get_current_user(
         email: str = payload.get("sub")
         if email is None:
             raise credentials_exception
-    except jwt.PyJWTError:
+    except Exception:
         raise credentials_exception
     
     # Get user from MongoDB
@@ -115,6 +115,20 @@ async def register(user_data: UserCreate):
     user_doc["_id"] = result.inserted_id
     
     logger.info(f"User registered successfully in database '{mongo_db.name}': {user_data.email}")
+    
+    # Send welcome email asynchronously
+    try:
+        from app.services.email_service import email_service
+        import asyncio
+        # Send welcome email in background
+        asyncio.create_task(email_service.send_welcome_email(
+            user_data.email, 
+            user_data.full_name
+        ))
+        logger.info(f"Welcome email queued for {user_data.email}")
+    except Exception as email_error:
+        logger.error(f"Failed to queue welcome email: {email_error}")
+        # Don't fail registration if email fails
     
     # Create access token for the new user
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)

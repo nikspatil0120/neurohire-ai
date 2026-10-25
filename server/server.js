@@ -11,6 +11,7 @@ import userProgressRoutes from './routes/userProgress.js';
 import aptitudeQuestionsRoutes from './routes/aptitudeQuestions.js';
 import profileRoutes from './routes/profile.js';
 import submissionsRoutes from './routes/submissions.js';
+import emailRoutes from './routes/emailRoutes.js';
 
 // Load environment variables
 dotenv.config();
@@ -105,6 +106,7 @@ app.use('/api/progress', userProgressRoutes);
 app.use('/api/aptitude-questions', aptitudeQuestionsRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/submissions', submissionsRoutes);
+app.use('/api/email', emailRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {
@@ -167,6 +169,7 @@ app.listen(PORT, () => {
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`📡 Health check: http://localhost:${PORT}/health`);
   console.log(`🔐 Auth API: http://localhost:${PORT}/api/auth`);
+  console.log(`📧 Email API: http://localhost:${PORT}/api/email`);
 });
 
 // Handle unhandled promise rejections

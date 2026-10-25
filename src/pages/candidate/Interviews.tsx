@@ -5,7 +5,7 @@ import GlassCard from "@/components/GlassCard";
 import {
   LayoutDashboard, Target, Building2, FileText, User, LogOut, Briefcase,
   Clock, Calendar, Check, X, AlertCircle, ChevronRight, Building,
-  AlignLeft, BookOpen, Code, Users, ClockIcon, Lock, Brain,
+  AlignLeft, BookOpen, Code, Users, ClockIcon, Lock, Brain, Sparkles, CheckCheck, MessageCircle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
@@ -18,6 +18,7 @@ const navItems = [
   { label: "Practice",              href: "/candidate/practice",              icon: Target },
   { label: "Company Interviews",    href: "/candidate/interviews",            icon: Building2 },
   { label: "Incoming Opportunities",href: "/candidate/incoming-opportunities",icon: Briefcase },
+  { label: "Messages",              href: "/candidate/messages",              icon: MessageCircle },
   { label: "Reports",               href: "/candidate/reports",               icon: FileText },
   { label: "Profile",               href: "/candidate/profile",               icon: User },
   { label: "Logout",                href: "/login",                           icon: LogOut },
@@ -32,6 +33,9 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   interview_pending: { label: "Interview Pending", color: "bg-cyan-500/20 text-cyan-400 border-cyan-500/40" },
   selected:          { label: "Selected 🎉",       color: "bg-green-500/20 text-green-400 border-green-500/40" },
   rejected:          { label: "Rejected",          color: "bg-red-500/20 text-red-400 border-red-500/40" },
+  offer_sent:        { label: "Offer Received 📬", color: "bg-indigo-500/20 text-indigo-400 border-indigo-500/40" },
+  offer_accepted:    { label: "Offer Accepted 🎉", color: "bg-emerald-500/20 text-emerald-400 border-emerald-500/40" },
+  offer_rejected:    { label: "Offer Declined",   color: "bg-rose-500/20 text-rose-400 border-rose-500/40" },
 };
 
 const StatusBadge = ({ status }: { status: string }) => {
@@ -869,13 +873,21 @@ const Interviews = () => {
               )}
 
               {/* Actions */}
-              <div className="pt-4 border-t border-border/30 flex gap-3">
+              <div className="pt-4 border-t border-border/30 flex gap-3 flex-wrap">
+                {selectedApp.application_status === "offer_accepted" && (
+                  <button
+                    onClick={() => navigate("/candidate/messages")}
+                    className="flex-1 py-3 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-semibold flex items-center justify-center gap-2 hover:shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all"
+                  >
+                    <MessageCircle className="w-4 h-4" /> Open Recruiter Chat
+                  </button>
+                )}
                 {selectedApp.application_status === "test_pending" && (
                   <button className="flex-1 py-3 rounded-lg bg-gradient-to-r from-primary to-neon-cyan text-primary-foreground font-semibold flex items-center justify-center gap-2 hover:shadow-[0_0_20px_hsl(185_100%_50%/0.3)] transition-all">
                     <ChevronRight className="w-4 h-4" /> Start Test
                   </button>
                 )}
-                {!["selected","rejected"].includes(selectedApp.application_status) && (
+                {!["selected","rejected","offer_accepted"].includes(selectedApp.application_status) && (
                   <button
                     disabled={withdrawing}
                     onClick={() => withdrawApplication(selectedApp._id)}

@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ProfilePhotoCapture from '@/components/ProfilePhotoCapture';
 import { Shield, ArrowRight } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 
 const ProfilePhotoOnboarding = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [photoSaved, setPhotoSaved] = useState(false);
 
   const handlePhotoSaved = (photo: string) => {
@@ -42,7 +44,7 @@ const ProfilePhotoOnboarding = () => {
         <div className="bg-card border border-border/50 rounded-2xl p-8 shadow-xl">
           {!photoSaved ? (
             <>
-              <ProfilePhotoCapture onPhotoSaved={handlePhotoSaved} />
+              <ProfilePhotoCapture onPhotoSaved={handlePhotoSaved} email={user?.email} />
               
               {/* Skip Button */}
               <div className="mt-6 text-center">

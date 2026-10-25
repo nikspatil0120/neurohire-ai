@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     # AI Interview APIs
     GEMINI_API_KEY: str = ""
     GROQ_API_KEY: str = ""
+
+    # Email Service
+    BREVO_API_KEY: str = ""
+    EMAIL_SERVICE_URL: str = "http://localhost:5000/api/email"
+    SENDER_EMAIL: str = "neurohireaiplatform@gmail.com"
+    SENDER_NAME: str = "NeuroHire AI"
     
     class Config:
         # Look for .env in backend/ dir or project root

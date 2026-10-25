@@ -2,14 +2,16 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
+import os
 import time
 import logging
 
 from app.config import settings
 from app.core.database import init_db, close_db
 from app.utils.logger import setup_logging, APILogger, SecurityLogger
-from app.api import auth, users, jobs, interviews, websocket, problems, admin, aptitude, companies, avatar, applications, recruiter_questions
+from app.api import auth, users, jobs, interviews, websocket, problems, admin, aptitude, companies, avatar, applications, recruiter_questions, interview_ai, messages
 from app.api.routes import simli
 
 # Setup logging
@@ -40,6 +42,7 @@ async def lifespan(app: FastAPI):
         "storage/audio/responses", 
         "storage/uploads/resumes",
         "storage/uploads/avatars",
+        "storage/uploads/chat",
         "storage/models",
         "logs/interviews",
         "logs/security"
@@ -207,8 +210,14 @@ app.include_router(problems.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
 app.include_router(aptitude.router, prefix="/api/v1")
 app.include_router(companies.router, prefix="/api/v1")
+app.include_router(interview_ai.router, prefix="/api/v1")
+app.include_router(messages.router, prefix="/api/v1")
 app.include_router(avatar.router, prefix="/api", tags=["avatar"])  # Avatar integration
 app.include_router(simli.router)  # Simli avatar integration
+
+# Mount storage directory for uploaded files and media
+os.makedirs("storage/uploads/chat", exist_ok=True)
+app.mount("/storage", StaticFiles(directory="storage"), name="storage")
 
 # Additional endpoints
 @app.get("/api/v1/system/info")

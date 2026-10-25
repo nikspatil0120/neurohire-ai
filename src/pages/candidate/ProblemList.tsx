@@ -4,7 +4,7 @@ import DashboardLayout from "@/components/layout/DashboardLayout";
 import GlassCard from "@/components/GlassCard";
 import { 
   LayoutDashboard, Target, Building2, FileText, User, LogOut, 
-  Code, CheckCircle, ThumbsUp, Users, Filter, Search, Check, Briefcase
+  Code, CheckCircle, ThumbsUp, Users, Filter, Search, Check, Briefcase, MessageCircle
 } from "lucide-react";
 import { getPublishedProblems, getAllProblems, Problem } from "@/lib/problemStore";
 
@@ -13,6 +13,7 @@ const navItems = [
   { label: "Practice", href: "/candidate/practice", icon: Target, showSolvedCount: true },
   { label: "Company Interviews", href: "/candidate/interviews", icon: Building2 },
   { label: "Incoming Opportunities", href: "/candidate/incoming-opportunities", icon: Briefcase },
+  { label: "Messages", href: "/candidate/messages", icon: MessageCircle },
   { label: "Reports", href: "/candidate/reports", icon: FileText },
   { label: "Profile", href: "/candidate/profile", icon: User },
   { label: "Logout", href: "/login", icon: LogOut },

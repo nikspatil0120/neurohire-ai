@@ -19,6 +19,7 @@ import {
   Calendar,
   Sparkles,
   ExternalLink,
+  MessageCircle,
 } from "lucide-react";
 import { useProfile } from "@/contexts/ProfileContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -31,6 +32,7 @@ const navItems = [
   { label: "Practice", href: "/candidate/practice", icon: Target },
   { label: "Company Interviews", href: "/candidate/interviews", icon: Building2 },
   { label: "Incoming Opportunities", href: "/candidate/incoming-opportunities", icon: Briefcase },
+  { label: "Messages", href: "/candidate/messages", icon: MessageCircle },
   { label: "Reports", href: "/candidate/reports", icon: FileText },
   { label: "Profile", href: "/candidate/profile", icon: User },
   { label: "Logout", href: "/login", icon: LogOut },
@@ -44,6 +46,9 @@ const STATUS_CONFIG: Record<string, { label: string; badgeClass: string }> = {
   interview_pending: { label: "Interview Pending", badgeClass: "bg-cyan-500/10 text-cyan-400 border-cyan-500/30" },
   selected: { label: "Selected 🎉", badgeClass: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" },
   rejected: { label: "Rejected", badgeClass: "bg-rose-500/10 text-rose-400 border-rose-500/30" },
+  offer_sent: { label: "Offer Received 📬", badgeClass: "bg-indigo-500/15 text-indigo-400 border-indigo-500/30" },
+  offer_accepted: { label: "Offer Accepted 🎉", badgeClass: "bg-emerald-500/15 text-emerald-400 border-emerald-500/40" },
+  offer_rejected: { label: "Offer Declined", badgeClass: "bg-rose-500/10 text-rose-400 border-rose-500/30" },
 };
 
 interface ApplicationSummary {
@@ -107,10 +112,45 @@ const CandidateDashboard = () => {
     ["test_pending", "test_started", "interview_pending"].includes(app.application_status)
   );
   const nextAction = pendingActions[0] || null;
+  const acceptedApp = applications.find(a => a.application_status === "offer_accepted");
+  const hasAcceptedOffer = Boolean(acceptedApp);
+  const acceptedCompanyName = acceptedApp?.organization_name || acceptedApp?.job_title || "your hiring company";
 
   return (
     <DashboardLayout navItems={navItems} title="DASHBOARD">
       <div className="space-y-6 w-full pb-10">
+        {/* Recruiter Messenger Active Alert Banner */}
+        {hasAcceptedOffer && (
+          <GlassCard variant="neon" className="p-4 bg-gradient-to-r from-emerald-500/10 via-primary/10 to-teal-500/10 border-emerald-500/40">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center flex-shrink-0 shadow-[0_0_15px_rgba(16,185,129,0.3)]">
+                  <MessageCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    Recruiter Messenger Active
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30">
+                      OFFER ACCEPTED
+                    </span>
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Your 1-on-1 communication channel with your recruiter at <strong className="text-foreground">{acceptedCompanyName}</strong> is active.
+                  </p>
+                </div>
+              </div>
+              <Link
+                to="/candidate/messages"
+                className="px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-500 text-white hover:bg-emerald-600 transition-all flex items-center justify-center gap-1.5 shadow-[0_0_15px_rgba(16,185,129,0.3)] self-start sm:self-auto"
+              >
+                <MessageCircle className="w-3.5 h-3.5" />
+                Open Recruiter Chat
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+          </GlassCard>
+        )}
+
         {/* Next Action / Hero Banner */}
         {nextAction ? (
           <GlassCard variant="neon" className="relative overflow-hidden p-6 border-primary/40 bg-gradient-to-r from-primary/10 via-card/70 to-card/90">
@@ -351,7 +391,15 @@ const CandidateDashboard = () => {
                         </div>
 
                         <div className="flex items-center gap-2 self-start sm:self-center">
-                          {isPending ? (
+                          {app.application_status === "offer_accepted" ? (
+                            <Link
+                              to="/candidate/messages"
+                              className="px-3.5 py-1.5 rounded-lg text-xs font-semibold text-emerald-400 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 shadow-[0_0_12px_rgba(16,185,129,0.2)] transition-all flex items-center gap-1.5"
+                            >
+                              <MessageCircle className="w-3.5 h-3.5" />
+                              Chat with Recruiter
+                            </Link>
+                          ) : isPending ? (
                             <Link
                               to="/candidate/interviews"
                               className="px-3 py-1.5 rounded-lg text-xs font-medium text-primary bg-primary/10 hover:bg-primary/20 border border-primary/30 transition-all flex items-center gap-1.5"

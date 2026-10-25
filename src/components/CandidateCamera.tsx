@@ -24,15 +24,32 @@ export const CandidateCamera = ({ onStream, enabled = true }: CandidateCameraPro
 
         console.log('🎥 Starting camera, videoRef:', videoRef.current);
 
-        // Request camera access
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            facingMode: 'user',
-          },
-          audio: false, // Audio is handled separately by AIAvatarInterviewer
-        });
+        // Request camera and microphone access
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+              facingMode: 'user',
+            },
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+          });
+        } catch (mediaErr) {
+          console.warn('⚠️ Could not acquire audio+video, falling back to video only:', mediaErr);
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+              facingMode: 'user',
+            },
+            audio: false,
+          });
+        }
 
         if (!mounted) {
           // Component unmounted, stop tracks

@@ -60,6 +60,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               if (savedGoogleUser) {
                 const googleUser = JSON.parse(savedGoogleUser);
                 setUser(googleUser);
+                localStorage.setItem('user', JSON.stringify(googleUser));
+                localStorage.setItem('userEmail', googleUser.email);
                 console.log('Google user restored from localStorage:', googleUser);
               } else {
                 // Create minimal user object
@@ -286,6 +288,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       
       // Save Google user to localStorage for persistence across refreshes
       localStorage.setItem('googleUser', JSON.stringify(mockGoogleUser));
+      localStorage.setItem('user', JSON.stringify(mockGoogleUser));
+      localStorage.setItem('userEmail', mockGoogleUser.email);
       
       // Check if profile photo is completed
       const profilePhotoCompleted = localStorage.getItem('profilePhotoCompleted');
@@ -316,6 +320,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       localStorage.removeItem('user');
       localStorage.removeItem('userEmail');
       localStorage.removeItem('currentUser');
+      localStorage.removeItem('profilePhotoCompleted');
       setUser(null);
       console.log('User logged out and local storage cleared');
     }
