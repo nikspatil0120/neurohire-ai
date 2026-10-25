@@ -77,37 +77,67 @@ function transcriptToText(items: TranscriptItem[]) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TTS helper
+// TTS helper (with termination check)
 // ─────────────────────────────────────────────────────────────────────────────
-function speak(text: string): Promise<void> {
+function speak(text: string, isTerminated: () => boolean): Promise<void> {
   return new Promise((resolve) => {
+    if (isTerminated()) { resolve(); return; }
     const clean = (text || "").trim();
     if (!clean || !("speechSynthesis" in window)) { resolve(); return; }
+
     try {
       window.speechSynthesis.cancel();
+      if (isTerminated()) { resolve(); return; }
+
       const utter = new SpeechSynthesisUtterance(clean);
       utter.rate = 1.0;
       utter.pitch = 1.0;
       utter.lang = "en-US";
       let done = false;
-      const finish = () => { if (!done) { done = true; resolve(); } };
+
+      const finish = () => {
+        if (!done) {
+          done = true;
+          resolve();
+        }
+      };
+
       utter.onend = finish;
       utter.onerror = finish;
+
+      const checkInterval = setInterval(() => {
+        if (isTerminated()) {
+          clearInterval(checkInterval);
+          try { window.speechSynthesis.cancel(); } catch { /* ignore */ }
+          finish();
+        }
+      }, 100);
+
       const estMs = Math.min(Math.max(clean.length * 60, 1200), 20000);
-      setTimeout(finish, estMs + 2500);
+      setTimeout(() => {
+        clearInterval(checkInterval);
+        finish();
+      }, estMs + 2500);
+
       window.speechSynthesis.speak(utter);
-    } catch { resolve(); }
+    } catch {
+      resolve();
+    }
   });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STT helper
+// STT helper (with termination check & active recognition ref)
 // ─────────────────────────────────────────────────────────────────────────────
 function listenForAnswer(
   onInterim: (text: string) => void,
   onCountdown: (sec: number) => void,
+  isTerminated: () => boolean,
+  setActiveRecognition: (rec: any) => void,
 ): Promise<string> {
   return new Promise((resolve) => {
+    if (isTerminated()) { resolve(""); return; }
+
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) { resolve(""); return; }
 
@@ -123,11 +153,22 @@ function listenForAnswer(
       if (finished) return;
       finished = true;
       clearInterval(interval);
-      try { recognition.onend = null; recognition.onerror = null; recognition.stop(); } catch { /* ignore */ }
+      setActiveRecognition(null);
+      try {
+        recognition.onend = null;
+        recognition.onerror = null;
+        recognition.onresult = null;
+        recognition.stop();
+        recognition.abort();
+      } catch { /* ignore */ }
       resolve(currentText());
     }
 
     function tick() {
+      if (isTerminated()) {
+        finalize();
+        return;
+      }
       onInterim(currentText());
       const remaining = SILENCE_TIMEOUT_MS - (Date.now() - lastSpeech);
       onCountdown(Math.max(0, Math.ceil(remaining / 1000)));
@@ -140,6 +181,7 @@ function listenForAnswer(
     recognition.interimResults = true;
 
     recognition.onresult = (event: any) => {
+      if (isTerminated()) { finalize(); return; }
       interimText = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const piece = event.results[i][0].transcript;
@@ -152,12 +194,24 @@ function listenForAnswer(
 
     recognition.onerror = (event: any) => {
       if (finished) return;
-      if (event.error === "not-allowed" || event.error === "service-not-allowed") { finalize(); }
+      if (event.error === "not-allowed" || event.error === "service-not-allowed" || isTerminated()) {
+        finalize();
+      }
     };
 
-    recognition.onend = () => { if (!finished) { try { recognition.start(); } catch { /* ignore */ } } };
+    recognition.onend = () => {
+      if (!finished && !isTerminated()) {
+        try { recognition.start(); } catch { /* ignore */ }
+      }
+    };
 
-    try { recognition.start(); } catch { resolve(""); return; }
+    try {
+      recognition.start();
+      setActiveRecognition(recognition);
+    } catch {
+      resolve("");
+      return;
+    }
 
     lastSpeech = Date.now();
     interval = setInterval(tick, 250);
@@ -208,10 +262,62 @@ const InterviewRoom = () => {
   const [errorMsg,         setErrorMsg]         = useState("");
 
   // ── Refs ──────────────────────────────────────────────────────────────────
-  const transcriptRef        = useRef<TranscriptItem[]>([]);
-  const correctnessHistory   = useRef<number[]>([]);
-  const currentExchangesRef  = useRef<Exchange[]>([]);
-  const runningRef           = useRef(false);
+  const transcriptRef          = useRef<TranscriptItem[]>([]);
+  const correctnessHistory     = useRef<number[]>([]);
+  const currentExchangesRef    = useRef<Exchange[]>([]);
+  const runningRef             = useRef(false);
+  const terminatedRef          = useRef(false);
+  const activeRecognitionRef   = useRef<any>(null);
+
+  // Helper function to check termination across all async operations
+  const isTerminated = useCallback(() => terminatedRef.current, []);
+
+  // ── Terminate Interview Handler ───────────────────────────────────────────
+  const handleTerminate = useCallback(() => {
+    terminatedRef.current = true;
+    runningRef.current = false;
+
+    // Immediately stop speech synthesis audio
+    if ("speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch { /* ignore */ }
+    }
+
+    // Immediately stop speech recognition
+    if (activeRecognitionRef.current) {
+      try {
+        activeRecognitionRef.current.onend = null;
+        activeRecognitionRef.current.onerror = null;
+        activeRecognitionRef.current.onresult = null;
+        activeRecognitionRef.current.abort();
+      } catch { /* ignore */ }
+      activeRecognitionRef.current = null;
+    }
+
+    setAiMode("idle");
+    setTerminated(true);
+  }, []);
+
+  // ── Cleanup on unmount ────────────────────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      terminatedRef.current = true;
+      runningRef.current = false;
+      if ("speechSynthesis" in window) {
+        try { window.speechSynthesis.cancel(); } catch { /* ignore */ }
+      }
+      if (activeRecognitionRef.current) {
+        try {
+          activeRecognitionRef.current.onend = null;
+          activeRecognitionRef.current.onerror = null;
+          activeRecognitionRef.current.onresult = null;
+          activeRecognitionRef.current.abort();
+        } catch { /* ignore */ }
+        activeRecognitionRef.current = null;
+      }
+    };
+  }, []);
 
   // ── Timer ─────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -236,6 +342,7 @@ const InterviewRoom = () => {
     mq: Question,
     exchanges: Exchange[],
   ) => {
+    if (terminatedRef.current) return null;
     const res = await fetch(`${API}/interview-ai/evaluate-answer`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -248,6 +355,7 @@ const InterviewRoom = () => {
         strength_label:       strengthLabel(correctnessHistory.current),
       }),
     });
+    if (terminatedRef.current) return null;
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || data.error || "Evaluation failed");
     return data.evaluation;
@@ -257,6 +365,7 @@ const InterviewRoom = () => {
     mq: Question,
     exchanges: Exchange[],
   ) => {
+    if (terminatedRef.current) return null;
     const res = await fetch(`${API}/interview-ai/followup`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -267,12 +376,14 @@ const InterviewRoom = () => {
         strength_label:       strengthLabel(correctnessHistory.current),
       }),
     });
+    if (terminatedRef.current) return null;
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || data.error || "Followup failed");
     return { reaction: data.reaction || "", followup_question: data.followup_question || "" };
   }, []);
 
   const computeFinalScore = useCallback(async () => {
+    if (terminatedRef.current) return null;
     const res = await fetch(`${API}/interview-ai/final-score`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -282,6 +393,7 @@ const InterviewRoom = () => {
         transcript: transcriptRef.current,
       }),
     });
+    if (terminatedRef.current) return null;
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || data.error || "Scoring failed");
     return data.result;
@@ -289,11 +401,11 @@ const InterviewRoom = () => {
 
   // ── Main interview orchestration ──────────────────────────────────────────
   const runInterview = useCallback(async (qs: Question[]) => {
-    if (runningRef.current || qs.length === 0) return;
+    if (runningRef.current || qs.length === 0 || terminatedRef.current) return;
     runningRef.current = true;
 
     for (let qi = 0; qi < qs.length; qi++) {
-      if (terminated) break;
+      if (terminatedRef.current) break;
       const mq = qs[qi];
 
       setQuestionIndex(qi + 1);
@@ -308,15 +420,19 @@ const InterviewRoom = () => {
 
       // Speak the question
       setAiMode("speaking");
-      await speak(questionText);
+      await speak(questionText, isTerminated);
+      if (terminatedRef.current) break;
 
       // Listen for answer
       setAiMode("listening");
       setLiveTranscript("");
       const answer = await listenForAnswer(
-        (t) => setLiveTranscript(t),
-        (s) => setSilenceCountdown(s),
+        (t) => { if (!terminatedRef.current) setLiveTranscript(t); },
+        (s) => { if (!terminatedRef.current) setSilenceCountdown(s); },
+        isTerminated,
+        (rec) => { activeRecognitionRef.current = rec; },
       );
+      if (terminatedRef.current) break;
 
       const exchanges: Exchange[] = [{ question: mq.question, answer }];
       currentExchangesRef.current = exchanges;
@@ -325,6 +441,7 @@ const InterviewRoom = () => {
 
       // Follow-up loop
       for (let fu = 0; fu < MAX_FOLLOWUPS; fu++) {
+        if (terminatedRef.current) break;
         setAiMode("processing");
 
         let evalResult: any;
@@ -334,18 +451,20 @@ const InterviewRoom = () => {
           console.error("Eval error:", e.message);
           break;
         }
+        if (terminatedRef.current) break;
         lastEval = evalResult;
 
         const threshold = followupThreshold(fu);
-        if ((evalResult.completeness_score ?? 1.0) >= threshold) break;
+        if ((evalResult?.completeness_score ?? 1.0) >= threshold) break;
 
-        let followupData: { reaction: string; followup_question: string };
+        let followupData: { reaction: string; followup_question: string } | null;
         try {
           followupData = await generateFollowup(mq, exchanges);
         } catch (e: any) {
           console.error("Followup error:", e.message);
           break;
         }
+        if (terminatedRef.current || !followupData) break;
 
         const fuText = `${followupData.reaction} ${followupData.followup_question}`.trim();
         setFollowupCount(fu + 1);
@@ -353,18 +472,24 @@ const InterviewRoom = () => {
         setLiveTranscript("");
 
         setAiMode("speaking");
-        await speak(fuText);
+        await speak(fuText, isTerminated);
+        if (terminatedRef.current) break;
 
         setAiMode("listening");
         setLiveTranscript("");
         const fuAnswer = await listenForAnswer(
-          (t) => setLiveTranscript(t),
-          (s) => setSilenceCountdown(s),
+          (t) => { if (!terminatedRef.current) setLiveTranscript(t); },
+          (s) => { if (!terminatedRef.current) setSilenceCountdown(s); },
+          isTerminated,
+          (rec) => { activeRecognitionRef.current = rec; },
         );
+        if (terminatedRef.current) break;
 
         exchanges.push({ question: followupData.followup_question, answer: fuAnswer });
         currentExchangesRef.current = exchanges;
       }
+
+      if (terminatedRef.current) break;
 
       correctnessHistory.current.push(lastEval?.correctness_score ?? 0.5);
       transcriptRef.current.push({
@@ -377,6 +502,11 @@ const InterviewRoom = () => {
       });
     }
 
+    if (terminatedRef.current) {
+      runningRef.current = false;
+      return;
+    }
+
     // Final scoring
     setAiMode("processing");
     setCurrentQuestion("Scoring your interview, please wait…");
@@ -386,6 +516,7 @@ const InterviewRoom = () => {
 
     try {
       const result = await computeFinalScore();
+      if (terminatedRef.current) return;
       setFinalResult(result);
 
       // If this was an actual application, record the score to the backend
@@ -404,14 +535,20 @@ const InterviewRoom = () => {
         }
       }
     } catch (e: any) {
-      setErrorMsg("Could not generate final score: " + e.message);
+      if (!terminatedRef.current) {
+        setErrorMsg("Could not generate final score: " + e.message);
+      }
     }
-    setIsFinished(true);
-  }, [evaluateAnswer, generateFollowup, computeFinalScore, terminated, state.applicationId]);
+
+    if (!terminatedRef.current) {
+      setIsFinished(true);
+      runningRef.current = false;
+    }
+  }, [evaluateAnswer, generateFollowup, computeFinalScore, isTerminated, state.applicationId]);
 
   // Start on mount when questions are ready
   useEffect(() => {
-    if (questions.length > 0 && !runningRef.current) {
+    if (questions.length > 0 && !runningRef.current && !terminatedRef.current) {
       runInterview(questions);
     }
   }, [questions, runInterview]);
@@ -453,21 +590,31 @@ const InterviewRoom = () => {
   if (terminated) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="text-center">
-          <AlertTriangle className="w-20 h-20 text-destructive mx-auto mb-6" />
+        <div className="text-center max-w-md">
+          <AlertTriangle className="w-20 h-20 text-destructive mx-auto mb-6 animate-pulse" />
           <h1
             className="font-display text-4xl text-destructive tracking-wider mb-4 neon-glow"
             style={{ textShadow: "0 0 10px hsl(0 84% 60% / 0.6), 0 0 40px hsl(0 84% 60% / 0.3)" }}
           >
             INTERVIEW ENDED
           </h1>
-          <p className="text-muted-foreground mb-8">Session terminated early.</p>
-          <Link
-            to="/candidate/dashboard"
-            className="px-6 py-3 rounded-lg border border-border/50 text-foreground text-sm hover:bg-muted/30 transition-all inline-block"
-          >
-            Return to Dashboard
-          </Link>
+          <p className="text-muted-foreground mb-8">
+            Session has been completely terminated. All audio and recognition services have been stopped.
+          </p>
+          <div className="flex gap-3 justify-center">
+            <Link
+              to="/candidate/practice"
+              className="px-6 py-2.5 rounded-lg border border-border/50 text-foreground text-sm hover:bg-muted/30 transition-all"
+            >
+              Practice Mode
+            </Link>
+            <Link
+              to="/candidate/dashboard"
+              className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 transition-all"
+            >
+              Dashboard
+            </Link>
+          </div>
         </div>
       </div>
     );
@@ -617,8 +764,8 @@ const InterviewRoom = () => {
             </div>
           )}
           <button
-            onClick={() => setTerminated(true)}
-            className="p-2 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive hover:bg-destructive/20 transition-all"
+            onClick={handleTerminate}
+            className="p-2 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive hover:bg-destructive/20 transition-all cursor-pointer"
             title="End Interview"
           >
             <X className="w-4 h-4" />
@@ -693,7 +840,7 @@ const InterviewRoom = () => {
         {/* Candidate camera + live transcript - RIGHT */}
         <div className="flex flex-col gap-4">
           <GlassCard variant="neon" hover={false} className="flex-1 flex items-center justify-center relative min-h-[220px] overflow-hidden p-0">
-            <CandidateCamera enabled={true} />
+            <CandidateCamera enabled={!terminated} />
             <div className="absolute top-4 right-4 z-10 flex items-center gap-2 bg-black/60 px-2 py-1 rounded-full backdrop-blur-sm">
               <div className="w-2 h-2 rounded-full bg-destructive animate-glow-pulse" />
               <span className="text-[10px] font-semibold text-white tracking-wider">LIVE FEED</span>
