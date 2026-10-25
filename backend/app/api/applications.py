@@ -68,6 +68,10 @@ class OfferResponseRequest(BaseModel):
     company_name: Optional[str] = ""
     job_title: Optional[str] = ""
 
+class BulkRejectRequest(BaseModel):
+    application_ids: Optional[List[str]] = None
+    send_emails: Optional[bool] = True
+
 
 
 # ─────────────────────────────────────────────
@@ -110,6 +114,8 @@ def application_helper(app, include_report: bool = True) -> dict:
         # Round scores – stored as { round: { score, max_score, notes, submitted_at } }
         "scores": app.get("scores", {}),
         "final_interview_score": app.get("final_interview_score"),
+        "rejection_email_sent": app.get("rejection_email_sent", False),
+        "rejection_email_sent_at": app.get("rejection_email_sent_at", None),
         "applied_at": app.get("applied_at", ""),
         "created_at": app.get("created_at", ""),
         "updated_at": app.get("updated_at", ""),
@@ -1009,4 +1015,102 @@ async def mark_offer_sent(application_id: str):
         raise
     except Exception as e:
         logger.error(f"mark_offer_sent error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/jobs/{job_id}/bulk-reject")
+async def bulk_reject_applications(job_id: str, data: Optional[BulkRejectRequest] = None):
+    """
+    Bulk reject candidates for a specific job in one click:
+    1. Selects all candidates for job_id who are NOT selected/offer_sent/offer_accepted.
+       (Or specifically the list in data.application_ids if provided).
+    2. Updates status to 'rejected', sets rejection_email_sent=True, rejection_email_sent_at=now.
+    3. Dispatches rejection emails in bulk via email_service.
+    """
+    try:
+        mongodb = get_mongo_db()
+        if mongodb is None:
+            raise HTTPException(status_code=503, detail="Database not available")
+
+        # Query applications for this job
+        query = {"job_id": job_id}
+        if data and data.application_ids and len(data.application_ids) > 0:
+            oids = []
+            for aid in data.application_ids:
+                try:
+                    oids.append(ObjectId(aid))
+                except Exception:
+                    pass
+            if oids:
+                query["_id"] = {"$in": oids}
+        else:
+            # Only unselected / not yet offered candidates
+            query["application_status"] = {"$nin": ["selected", "offer_sent", "offer_accepted"]}
+
+        cursor = mongodb["applications"].find(query)
+        candidates_to_reject = [a async for a in cursor]
+
+        if not candidates_to_reject:
+            return {
+                "success": True,
+                "message": "No eligible candidates found to reject for this job.",
+                "count": 0,
+                "rejected_ids": []
+            }
+
+        now = datetime.utcnow().isoformat()
+        target_ids = [c["_id"] for c in candidates_to_reject]
+
+        # Update applications status in DB
+        await mongodb["applications"].update_many(
+            {"_id": {"$in": target_ids}},
+            {"$set": {
+                "application_status": "rejected",
+                "rejection_email_sent": True,
+                "rejection_email_sent_at": now,
+                "updated_at": now
+            }}
+        )
+
+        # Dispatch bulk rejection emails if requested
+        should_send = data.send_emails if (data and data.send_emails is not None) else True
+        email_result = None
+        if should_send:
+            try:
+                from app.services.email_service import email_service
+                first_app = candidates_to_reject[0]
+                job_title = first_app.get("job_title", "Position")
+                company_name = first_app.get("organization_name", "NeuroHire AI")
+
+                cand_payload = [
+                    {
+                        "email": c.get("candidate_email", ""),
+                        "name": c.get("candidate_name", "Candidate"),
+                        "applicationId": str(c.get("_id", ""))
+                    }
+                    for c in candidates_to_reject
+                    if c.get("candidate_email")
+                ]
+
+                email_result = await email_service.send_bulk_rejection_emails(
+                    cand_payload,
+                    job_title,
+                    company_name
+                )
+                logger.info(f"Bulk rejection emails dispatched for {job_id}: {email_result}")
+            except Exception as mail_err:
+                logger.error(f"Failed to dispatch bulk rejection emails: {mail_err}")
+
+        return {
+            "success": True,
+            "message": f"Successfully rejected {len(target_ids)} candidates and dispatched rejection emails.",
+            "count": len(target_ids),
+            "rejected_ids": [str(tid) for tid in target_ids],
+            "email_summary": email_result
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"bulk_reject_applications error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

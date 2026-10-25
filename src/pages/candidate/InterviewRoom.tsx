@@ -8,12 +8,15 @@ import ProctoringDebugPanel from "@/components/ProctoringDebugPanel";
 import { useFaceAnalysis } from "@/hooks/useFaceAnalysis";
 import { useProctoringMonitor } from "@/hooks/useProctoringMonitor";
 import { useCandidateSignals } from "@/hooks/useCandidateSignals";
-import {
-  Brain, Camera, Clock, AlertTriangle, Mic, MicOff,
-  X, Volume2, ArrowLeft, RefreshCw, CheckCircle2, Send, ShieldOff,
+  Brain, Camera, Clock, AlertTriangle, Mic, MicOff, BarChart3,
+  TrendingUp, X, Volume2, ArrowLeft, RefreshCw, CheckCircle2, Send, ShieldOff,
+  Shield, ShieldAlert, AlertOctagon, UserCheck, Sparkles,
+  Lock, Unlock, Maximize2, Minimize2,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import * as faceapi from "face-api.js";
+import FaceVerificationGate from "@/components/FaceVerificationGate";
 
 const API = "http://localhost:8000/api/v1";
 
@@ -164,6 +167,7 @@ function listenForAnswer(
   registerSubmit: (submitFn: () => void) => void,
   getCurrentManualText: () => string,
   mediaStream: MediaStream | null,
+  isHalted?: () => boolean,
 ): Promise<string> {
   return new Promise(async (resolve) => {
     if (isTerminated()) { resolve(""); return; }
@@ -264,6 +268,7 @@ function listenForAnswer(
           clearInterval(periodicWhisperTimer);
           return;
         }
+        if (isHalted && isHalted()) return;
         // If browser STT has not produced any transcript but user has spoken audio:
         if (!finalText && !interimText && audioChunks.length >= 6) {
           try {
@@ -282,6 +287,10 @@ function listenForAnswer(
       if (isTerminated()) {
         if (periodicWhisperTimer) clearInterval(periodicWhisperTimer);
         finalize();
+        return;
+      }
+      if (isHalted && isHalted()) {
+        lastSpeech = Date.now(); // freeze silence timeout while security halted
         return;
       }
       const remaining = SILENCE_TIMEOUT_MS - (Date.now() - lastSpeech);
@@ -389,18 +398,56 @@ const InterviewRoom = () => {
   const [errorMsg,         setErrorMsg]         = useState("");
   const [audioLevel,       setAudioLevel]       = useState(0);
 
+  // ── Biometric Face Verification & Proctoring Security State ───────────────
+  const [isVerified,                setIsVerified]                = useState(false);
+  const [isSecurityHalted,          setIsSecurityHalted]          = useState(false);
+  const [securityHaltReason,        setSecurityHaltReason]        = useState("");
+  const [faceViolationsCount,       setFaceViolationsCount]       = useState(0);
+  const [outOfFrameCountdown,       setOutOfFrameCountdown]       = useState<number | null>(null);
+  const [securityTerminated,        setSecurityTerminated]        = useState(false);
+  const [securityTerminationReason, setSecurityTerminationReason] = useState("");
+
+  // ── Window Lockdown & Anti-Cheat State (Dev Mode Unlockable) ───────────────
+  const [isWindowLocked,            setIsWindowLocked]            = useState(true);
+  const [isFullscreen,              setIsFullscreen]              = useState(false);
+  const [windowViolationsCount,     setWindowViolationsCount]     = useState(0);
+  const [showWindowViolationModal,  setShowWindowViolationModal]  = useState(false);
+  const [needsFullscreenPrompt,     setNeedsFullscreenPrompt]     = useState(false);
+  const [windowExitCountdown,       setWindowExitCountdown]       = useState<number | null>(null);
+  const isWindowLockedRef           = useRef(true);
+  const windowExitStartTimeRef      = useRef<number | null>(null);
+
+  // Keep window lock ref synchronized
+  useEffect(() => {
+    isWindowLockedRef.current = isWindowLocked;
+  }, [isWindowLocked]);
+
   // ── Refs ──────────────────────────────────────────────────────────────────
-  const transcriptRef          = useRef<TranscriptItem[]>([]);
-  const correctnessHistory     = useRef<number[]>([]);
-  const currentExchangesRef    = useRef<Exchange[]>([]);
-  const runningRef             = useRef(false);
-  const terminatedRef          = useRef(false);
-  const activeRecognitionRef   = useRef<any>(null);
-  const manualAnswerRef        = useRef("");
-  const submitCurrentAnswerRef = useRef<(() => void) | null>(null);
-  const audioContextRef        = useRef<AudioContext | null>(null);
-  const animFrameRef           = useRef<number | null>(null);
-  const mediaStreamRef         = useRef<MediaStream | null>(null);
+  const transcriptRef               = useRef<TranscriptItem[]>([]);
+  const correctnessHistory          = useRef<number[]>([]);
+  const currentExchangesRef         = useRef<Exchange[]>([]);
+  const runningRef                  = useRef(false);
+  const terminatedRef               = useRef(false);
+  const activeRecognitionRef        = useRef<any>(null);
+  const manualAnswerRef             = useRef("");
+  const submitCurrentAnswerRef      = useRef<(() => void) | null>(null);
+  const audioContextRef             = useRef<AudioContext | null>(null);
+  const animFrameRef                = useRef<number | null>(null);
+  const mediaStreamRef              = useRef<MediaStream | null>(null);
+  const verifiedDescriptorRef       = useRef<Float32Array | null>(null);
+  const candidateVideoRef           = useRef<HTMLVideoElement | null>(null);
+  const isSecurityHaltedRef         = useRef(false);
+  const faceViolationsRef           = useRef(0);
+  const isMonitoringRef             = useRef(false);
+  const outOfFrameStartTimeRef      = useRef<number | null>(null);
+  const mismatchConsecutiveCountRef = useRef(0);
+  const zeroFaceConsecutiveTicksRef = useRef(0);
+  const multiFaceConsecutiveTicksRef= useRef(0);
+
+  // Keep ref synchronized
+  useEffect(() => {
+    isSecurityHaltedRef.current = isSecurityHalted;
+  }, [isSecurityHalted]);
 
   // Helper function to check termination across all async operations
   const isTerminated = useCallback(() => terminatedRef.current, []);
@@ -435,6 +482,26 @@ const InterviewRoom = () => {
       setShowCameraModal(true);
     }
   }, [faceAnalysis.error]);
+
+  // Preload face-api models for continuous background proctoring
+  useEffect(() => {
+    const loadFaceModels = async () => {
+      try {
+        if (!faceapi.nets.tinyFaceDetector.params) {
+          await faceapi.nets.tinyFaceDetector.loadFromUri('/models');
+        }
+        if (!faceapi.nets.faceLandmark68Net.params) {
+          await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
+        }
+        if (!faceapi.nets.faceRecognitionNet.params) {
+          await faceapi.nets.faceRecognitionNet.loadFromUri('/models');
+        }
+      } catch (e) {
+        console.warn("[InterviewRoom] Face models preload notice:", e);
+      }
+    };
+    loadFaceModels();
+  }, []);
 
   // ── Audio Level Meter from Camera/Mic stream ─────────────────────────────
   const handleMediaStream = useCallback((stream: MediaStream) => {
@@ -515,10 +582,87 @@ const InterviewRoom = () => {
     }
   }, [state.applicationId]);
 
+  // ── Window Lockdown & Fullscreen Controls ─────────────────────────────────
+  const enterFullscreenAndLock = useCallback(async () => {
+    try {
+      const elem = document.documentElement as any;
+      if (!document.fullscreenElement) {
+        if (elem.requestFullscreen) {
+          await elem.requestFullscreen();
+        } else if (elem.webkitRequestFullscreen) {
+          await elem.webkitRequestFullscreen();
+        } else if (elem.msRequestFullscreen) {
+          await elem.msRequestFullscreen();
+        }
+      }
+      setIsFullscreen(true);
+      setNeedsFullscreenPrompt(false);
+      setShowWindowViolationModal(false);
+
+      // Keyboard Lock API (Locks Escape, Alt, Tab, Windows keys in modern Chromium browsers)
+      if ((navigator as any).keyboard?.lock) {
+        try {
+          await (navigator as any).keyboard.lock(["Escape", "AltLeft", "AltRight", "Tab", "MetaLeft", "MetaRight"]);
+        } catch { /* keyboard lock permissions */ }
+      }
+    } catch (err) {
+      console.warn("[Lockdown] Fullscreen request prevented by browser policy (user gesture required):", err);
+      if (isWindowLockedRef.current) {
+        setNeedsFullscreenPrompt(true);
+      }
+    }
+  }, []);
+
+  const exitFullscreenAndUnlock = useCallback(async () => {
+    try {
+      if ((navigator as any).keyboard?.unlock) {
+        try { (navigator as any).keyboard.unlock(); } catch { /* ignore */ }
+      }
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      }
+      setIsFullscreen(false);
+    } catch (err) {
+      console.warn("[Lockdown] Exit fullscreen notice:", err);
+    }
+  }, []);
+
+  const toggleDevModeLock = useCallback(async () => {
+    if (isWindowLockedRef.current) {
+      // Dev mode: unlock window
+      setIsWindowLocked(false);
+      isWindowLockedRef.current = false;
+      await exitFullscreenAndUnlock();
+      setShowWindowViolationModal(false);
+      setNeedsFullscreenPrompt(false);
+      windowExitStartTimeRef.current = null;
+      setWindowExitCountdown(null);
+      console.log("[Lockdown] 🔓 Developer Mode: Window unlocked.");
+    } else {
+      // Dev mode: re-lock window
+      setIsWindowLocked(true);
+      isWindowLockedRef.current = true;
+      await enterFullscreenAndLock();
+      console.log("[Lockdown] 🔒 Locked Exam Mode: Window re-locked.");
+    }
+  }, [exitFullscreenAndUnlock, enterFullscreenAndLock]);
+
   // ── Terminate Interview Handler ───────────────────────────────────────────
   const handleTerminate = useCallback(() => {
     terminatedRef.current = true;
     runningRef.current = false;
+
+    // Immediately release lockdown upon termination
+    try {
+      if ((navigator as any).keyboard?.unlock) (navigator as any).keyboard.unlock();
+      if (document.fullscreenElement) document.exitFullscreen();
+    } catch { /* ignore */ }
+    setIsWindowLocked(false);
+    isWindowLockedRef.current = false;
+    setShowWindowViolationModal(false);
+    setNeedsFullscreenPrompt(false);
+    windowExitStartTimeRef.current = null;
+    setWindowExitCountdown(null);
 
     // Immediately stop speech synthesis audio
     if ("speechSynthesis" in window) {
@@ -547,6 +691,14 @@ const InterviewRoom = () => {
     setTerminated(true);
   }, []);
 
+  // ── Automatic Security Termination Handler ────────────────────────────────
+  const handleSecurityTermination = useCallback((reason: string) => {
+    console.error("[InterviewRoom] Automatic Security Termination:", reason);
+    setSecurityTerminated(true);
+    setSecurityTerminationReason(reason);
+    handleTerminate();
+  }, [handleTerminate]);
+
   // ── Cleanup on unmount ────────────────────────────────────────────────────
   useEffect(() => {
     return () => {
@@ -571,12 +723,336 @@ const InterviewRoom = () => {
     };
   }, []);
 
-  // ── Timer ─────────────────────────────────────────────────────────────────
+  // ── Window Lockdown & Anti-Cheat Enforcement Loop (5s Auto-Termination) ──────
   useEffect(() => {
-    if (isFinished || terminated || questions.length === 0) return;
+    if (!isVerified || terminated || isFinished) {
+      exitFullscreenAndUnlock();
+      windowExitStartTimeRef.current = null;
+      setWindowExitCountdown(null);
+      return;
+    }
+
+    // Try auto-locking on session start if enabled
+    if (isWindowLocked) {
+      enterFullscreenAndLock();
+    }
+
+    // Core validation check: If tab hidden OR not in fullscreen -> 5-second countdown to termination
+    const checkWindowSecurity = () => {
+      if (!isWindowLockedRef.current || terminatedRef.current) {
+        if (windowExitStartTimeRef.current !== null) {
+          windowExitStartTimeRef.current = null;
+          setWindowExitCountdown(null);
+        }
+        return;
+      }
+
+      const isViolating = document.hidden || !document.fullscreenElement;
+
+      if (isViolating) {
+        if (windowExitStartTimeRef.current === null) {
+          windowExitStartTimeRef.current = Date.now();
+          setWindowExitCountdown(5);
+          setShowWindowViolationModal(true);
+          try { window.speechSynthesis.cancel(); } catch { /* ignore */ }
+        }
+
+        const elapsedSecs = (Date.now() - windowExitStartTimeRef.current) / 1000;
+        const remainingSecs = Math.max(0, Math.ceil(5 - elapsedSecs));
+        setWindowExitCountdown(remainingSecs);
+
+        if (elapsedSecs >= 5) {
+          console.warn("[Lockdown] Candidate exited window / full-screen for > 5 seconds. Terminating interview.");
+          windowExitStartTimeRef.current = null;
+          setWindowExitCountdown(null);
+          setShowWindowViolationModal(false);
+          handleSecurityTermination(
+            "Interview terminated automatically: Candidate switched tabs or exited full-screen mode for more than 5 seconds."
+          );
+        }
+      } else {
+        // Candidate is back inside locked full-screen window within the 5 seconds!
+        if (windowExitStartTimeRef.current !== null) {
+          console.log("[Lockdown] Candidate returned to locked fullscreen window within 5 seconds! Resuming interview.");
+          windowExitStartTimeRef.current = null;
+          setWindowExitCountdown(null);
+          setShowWindowViolationModal(false);
+        }
+      }
+    };
+
+    // Fullscreen change listener
+    const handleFullscreenChange = () => {
+      const inFullscreen = !!document.fullscreenElement;
+      setIsFullscreen(inFullscreen);
+      checkWindowSecurity();
+    };
+
+    // Tab switch / Window visibility change listener
+    const handleVisibilityChange = () => {
+      checkWindowSecurity();
+    };
+
+    // Window blur & focus listeners
+    const handleWindowBlur = () => {
+      checkWindowSecurity();
+    };
+
+    const handleWindowFocus = () => {
+      checkWindowSecurity();
+    };
+
+    // 250ms periodic ticker ensuring exact countdown and termination even if backgrounded
+    const countdownTicker = setInterval(checkWindowSecurity, 250);
+
+    // Keyboard lockdown listener (prevents Alt+Tab, Esc, Win, F5, F11, F12, Ctrl+W, Ctrl+R, DevTools)
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isWindowLockedRef.current || terminatedRef.current) return;
+
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+
+      if (e.key === "Meta" || e.metaKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+
+      if (e.altKey && ["Tab", "F4", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && ["w", "t", "n", "r", "q"].includes(e.key.toLowerCase())) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+
+      if (["F5", "F11", "F12"].includes(e.key)) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && ["I", "J", "C"].includes(e.key.toUpperCase())) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+    };
+
+    // Block right-click context menu (inspect element)
+    const handleContextMenu = (e: MouseEvent) => {
+      if (isWindowLockedRef.current && !terminatedRef.current) {
+        e.preventDefault();
+      }
+    };
+
+    // Block tab/window close
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isWindowLockedRef.current && !terminatedRef.current) {
+        e.preventDefault();
+        e.returnValue = "An active proctored interview is in progress. Exiting will cancel and invalidate your session!";
+        return e.returnValue;
+      }
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("blur", handleWindowBlur);
+    window.addEventListener("focus", handleWindowFocus);
+    window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("contextmenu", handleContextMenu);
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => {
+      clearInterval(countdownTicker);
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("blur", handleWindowBlur);
+      window.removeEventListener("focus", handleWindowFocus);
+      window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("contextmenu", handleContextMenu);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [isVerified, terminated, isFinished, enterFullscreenAndLock, exitFullscreenAndUnlock, handleSecurityTermination]);
+
+  // ── Continuous Background Face Proctoring Loop ─────────────────────────────
+  // Ultra-stable proctoring rules:
+  // 1. Moving a little in frame will NEVER halt the interview.
+  // 2. Only halts if candidate is COMPLETELY out of window for > 2 seconds (starts 5s return countdown).
+  // 3. Only halts if another face / multiple faces are detected in camera frame.
+  useEffect(() => {
+    if (!isVerified || terminated || isFinished) return;
+
+    let isMounted = true;
+    const intervalTime = 800; // Fast 800ms interval for responsive tracking
+
+    const monitorFaceTick = async () => {
+      if (!isMounted || terminatedRef.current || !verifiedDescriptorRef.current) return;
+      const video = candidateVideoRef.current;
+      if (!video || video.readyState < 2 || video.paused) return;
+      if (isMonitoringRef.current) return;
+
+      try {
+        isMonitoringRef.current = true;
+        // scoreThreshold 0.35 ensures tracking is preserved during motion and head tilts
+        const detections = await faceapi
+          .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.35 }))
+          .withFaceLandmarks()
+          .withFaceDescriptors();
+
+        if (!isMounted || terminatedRef.current) return;
+
+        // ── SCENARIO 1: NO FACE DETECTED (Candidate stepping out of window) ──
+        if (detections.length === 0) {
+          multiFaceConsecutiveTicksRef.current = 0;
+          mismatchConsecutiveCountRef.current = 0;
+          zeroFaceConsecutiveTicksRef.current += 1;
+
+          // Candidate must be COMPLETELY out of window for at least 3 consecutive ticks (~2.4s)
+          // Normal movement, blinking, or scratching face will NOT cause false halts!
+          if (zeroFaceConsecutiveTicksRef.current >= 3) {
+            if (outOfFrameStartTimeRef.current === null) {
+              outOfFrameStartTimeRef.current = Date.now();
+              isSecurityHaltedRef.current = true;
+              setIsSecurityHalted(true);
+              setSecurityHaltReason("You are completely out of the camera window. Return within 5 seconds.");
+              try { window.speechSynthesis.cancel(); } catch { /* ignore */ }
+            }
+
+            const elapsedSecs = (Date.now() - outOfFrameStartTimeRef.current) / 1000;
+            const remainingSecs = Math.max(0, Math.ceil(5 - elapsedSecs));
+            setOutOfFrameCountdown(remainingSecs);
+
+            // If completely out of window for 5 or more seconds without returning -> TERMINATE
+            if (elapsedSecs >= 5) {
+              console.warn("[FaceProctor] Candidate out of window for > 5 seconds. Terminating interview.");
+              handleSecurityTermination(
+                "Interview terminated automatically: Candidate was completely out of camera window for more than 5 seconds."
+              );
+              return;
+            }
+          }
+          return;
+        }
+
+        // ── A FACE IS PRESENT IN WINDOW ─────────────────────────────────────
+        // Candidate is inside the frame -> Reset zero-face counter immediately
+        zeroFaceConsecutiveTicksRef.current = 0;
+
+        // If previously halted because candidate left the window, candidate has returned!
+        if (outOfFrameStartTimeRef.current !== null) {
+          outOfFrameStartTimeRef.current = null;
+          setOutOfFrameCountdown(null);
+          // If only 1 person in frame, immediately resume interview
+          if (detections.length === 1) {
+            console.log("[FaceProctor] Candidate returned to window! Resuming interview.");
+            isSecurityHaltedRef.current = false;
+            setIsSecurityHalted(false);
+            setSecurityHaltReason("");
+          }
+        }
+
+        // ── SCENARIO 2: MULTIPLE FACES DETECTED (> 1) ──────────────────────
+        if (detections.length > 1) {
+          mismatchConsecutiveCountRef.current = 0;
+          multiFaceConsecutiveTicksRef.current += 1;
+
+          // Require 2 consecutive ticks to confirm a second person is truly in frame
+          if (multiFaceConsecutiveTicksRef.current >= 2) {
+            console.warn("[FaceProctor] Another face detected in frame:", detections.length);
+            if (!isSecurityHaltedRef.current) {
+              faceViolationsRef.current += 1;
+              setFaceViolationsCount(faceViolationsRef.current);
+
+              // If it happens MORE THAN TWO TIMES (> 2, i.e. 3rd infraction) -> Terminate!
+              if (faceViolationsRef.current > 2) {
+                handleSecurityTermination(
+                  `Interview terminated automatically: Multiple faces were detected in the webcam stream ${faceViolationsRef.current} times (exceeded maximum 2 allowed infractions).`
+                );
+                return;
+              }
+
+              isSecurityHaltedRef.current = true;
+              setIsSecurityHalted(true);
+              setSecurityHaltReason(`Another face was detected in your camera window (${detections.length} persons). Only the verified candidate is permitted.`);
+              try { window.speechSynthesis.cancel(); } catch { /* ignore */ }
+            }
+          }
+          return;
+        }
+
+        // Only 1 face in view
+        multiFaceConsecutiveTicksRef.current = 0;
+
+        // ── SCENARIO 3: EXACTLY 1 FACE DETECTED ─────────────────────────────
+        const dist = faceapi.euclideanDistance(verifiedDescriptorRef.current, detections[0].descriptor);
+
+        // Threshold 0.65: Generous tolerance for natural movement, head tilt, spectacles, expressions
+        // Ensures candidate moving around in their chair NEVER triggers a false alarm!
+        if (dist <= 0.65) {
+          // Real verified candidate is confirmed!
+          mismatchConsecutiveCountRef.current = 0;
+
+          if (isSecurityHaltedRef.current) {
+            console.log("[FaceProctor] Verified candidate confirmed! Resuming interview.");
+            isSecurityHaltedRef.current = false;
+            setIsSecurityHalted(false);
+            setSecurityHaltReason("");
+          }
+          return;
+        }
+
+        // If dist > 0.65, someone else is sitting in front of the camera
+        // Require 3 consecutive ticks (~2.4s) to confirm it is actually an unauthorized person
+        mismatchConsecutiveCountRef.current += 1;
+
+        if (mismatchConsecutiveCountRef.current >= 3) {
+          console.warn("[FaceProctor] Confirmed unauthorized face mismatch! Distance:", dist.toFixed(3));
+          if (!isSecurityHaltedRef.current) {
+            faceViolationsRef.current += 1;
+            setFaceViolationsCount(faceViolationsRef.current);
+
+            // If it happens MORE THAN TWO TIMES (> 2, i.e. 3rd infraction) -> Terminate!
+            if (faceViolationsRef.current > 2) {
+              handleSecurityTermination(
+                `Interview terminated automatically: An unauthorized face was detected ${faceViolationsRef.current} times during the proctored interview (exceeded maximum 2 allowed infractions).`
+              );
+              return;
+            }
+
+            isSecurityHaltedRef.current = true;
+            setIsSecurityHalted(true);
+            setSecurityHaltReason(`Another face was detected (Face mismatch distance: ${dist.toFixed(2)}). Interview halted until the verified candidate returns.`);
+            try { window.speechSynthesis.cancel(); } catch { /* ignore */ }
+          }
+        }
+      } catch (err) {
+        console.warn("[FaceProctor] Detection tick notice:", err);
+      } finally {
+        isMonitoringRef.current = false;
+      }
+    };
+
+    const timer = setInterval(monitorFaceTick, intervalTime);
+    return () => {
+      isMounted = false;
+      clearInterval(timer);
+    };
+  }, [isVerified, terminated, isFinished, handleSecurityTermination]);
+
+  // ── Timer (Paused while security halted) ───────────────────────────────────
+  useEffect(() => {
+    if (isFinished || terminated || questions.length === 0 || isSecurityHalted) return;
     const t = setInterval(() => setElapsedSec(s => s + 1), 1000);
     return () => clearInterval(t);
-  }, [isFinished, terminated, questions.length]);
+  }, [isFinished, terminated, questions.length, isSecurityHalted]);
 
   const formatTime = (s: number) => {
     const m = Math.floor(s / 60).toString().padStart(2, "0");
@@ -656,6 +1132,12 @@ const InterviewRoom = () => {
       // ── Signal tracking for this question ───────────────────────────────
       signalsRef.current.startQuestion(mq.id);
 
+      // Wait if security halted before asking question
+      while (isSecurityHaltedRef.current && !terminatedRef.current) {
+        await new Promise((r) => setTimeout(r, 400));
+      }
+      if (terminatedRef.current) break;
+
       // Speak the initial question
       setAiMode("speaking");
       await speak(questionText, isTerminated);
@@ -669,23 +1151,30 @@ const InterviewRoom = () => {
 
       // Conversational interaction loop on THIS question (handles candidate questions, clarifications, followups)
       while (!questionResolved && turnCount < 4 && !terminatedRef.current) {
+        // Wait if security halted before candidate turn
+        while (isSecurityHaltedRef.current && !terminatedRef.current) {
+          await new Promise((r) => setTimeout(r, 400));
+        }
+        if (terminatedRef.current) break;
+
         setAiMode("listening");
         setLiveTranscript("");
         manualAnswerRef.current = "";
 
         const spokenAnswer = await listenForAnswer(
           (t) => {
-            if (!terminatedRef.current) {
+            if (!terminatedRef.current && !isSecurityHaltedRef.current) {
               setLiveTranscript(t);
               manualAnswerRef.current = t;
             }
           },
-          (s) => { if (!terminatedRef.current) setSilenceCountdown(s); },
+          (s) => { if (!terminatedRef.current && !isSecurityHaltedRef.current) setSilenceCountdown(s); },
           isTerminated,
           (rec) => { activeRecognitionRef.current = rec; },
           (submitFn) => { submitCurrentAnswerRef.current = submitFn; },
           () => manualAnswerRef.current,
           mediaStreamRef.current,
+          () => isSecurityHaltedRef.current,
         );
         if (terminatedRef.current) break;
 
@@ -909,15 +1398,20 @@ const InterviewRoom = () => {
     if (!terminatedRef.current) {
       setIsFinished(true);
       runningRef.current = false;
+      exitFullscreenAndUnlock();
+      setIsWindowLocked(false);
+      isWindowLockedRef.current = false;
+      setShowWindowViolationModal(false);
+      setNeedsFullscreenPrompt(false);
     }
   }, [respondToCandidate, computeFinalScore, submitSignals, isTerminated, state.applicationId]);
 
-  // Start on mount when questions are ready
+  // Start when questions are ready AND identity has been verified
   useEffect(() => {
-    if (questions.length > 0 && !runningRef.current && !terminatedRef.current) {
+    if (isVerified && questions.length > 0 && !runningRef.current && !terminatedRef.current) {
       runInterview(questions);
     }
-  }, [questions, runInterview]);
+  }, [isVerified, questions, runInterview]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // NO QUESTIONS / DIRECT ACCESS SCREEN
@@ -951,34 +1445,69 @@ const InterviewRoom = () => {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // TERMINATED SCREEN
+  // PRE-INTERVIEW BIOMETRIC FACE VERIFICATION GATE
+  // ─────────────────────────────────────────────────────────────────────────
+  if (!isVerified) {
+    return (
+      <FaceVerificationGate
+        onVerified={(descriptor) => {
+          console.log("[InterviewRoom] ✅ Biometric Face verified! Initializing session.");
+          verifiedDescriptorRef.current = descriptor;
+          setIsVerified(true);
+          enterFullscreenAndLock();
+        }}
+        onFailed={() => {
+          navigate("/candidate/dashboard");
+        }}
+      />
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // TERMINATED SCREEN (Security violation or manual exit)
   // ─────────────────────────────────────────────────────────────────────────
   if (terminated) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="text-center max-w-md">
-          <AlertTriangle className="w-20 h-20 text-destructive mx-auto mb-6 animate-pulse" />
+        <div className="text-center max-w-lg p-8 rounded-2xl bg-card border border-destructive/40 shadow-2xl">
+          <div className="w-16 h-16 rounded-full bg-destructive/10 border border-destructive/30 flex items-center justify-center mx-auto mb-5">
+            <AlertTriangle className="w-9 h-9 text-destructive animate-pulse" />
+          </div>
           <h1
-            className="font-display text-4xl text-destructive tracking-wider mb-4 neon-glow"
+            className="font-display text-3xl text-destructive tracking-wider mb-3 neon-glow"
             style={{ textShadow: "0 0 10px hsl(0 84% 60% / 0.6), 0 0 40px hsl(0 84% 60% / 0.3)" }}
           >
-            INTERVIEW ENDED
+            {securityTerminated ? "INTERVIEW TERMINATED" : "INTERVIEW ENDED"}
           </h1>
-          <p className="text-muted-foreground mb-8">
-            Session has been completely terminated. All audio and recognition services have been stopped.
+          <p className="text-sm text-foreground/90 font-medium mb-3">
+            {securityTerminationReason || "Session has been terminated. All recording and evaluation services have been stopped."}
           </p>
+          {securityTerminated && (
+            <div className="mb-6 p-4 rounded-xl bg-destructive/10 border border-destructive/30 text-xs text-destructive text-left space-y-2">
+              <div className="font-semibold flex items-center gap-1.5 text-sm">
+                <AlertOctagon className="w-4 h-4 text-destructive" /> Automated Proctoring Rule Exceeded
+              </div>
+              <p>
+                An unauthorized face or secondary person was detected <strong>{faceViolationsCount} times</strong> during this session.
+                Per examination integrity policy, more than 2 violations result in mandatory termination.
+              </p>
+              <div className="text-[11px] text-muted-foreground pt-1 border-t border-destructive/20">
+                Timestamp: {new Date().toLocaleTimeString()} · Candidate Biometrics Enforced
+              </div>
+            </div>
+          )}
           <div className="flex gap-3 justify-center">
             <Link
               to="/candidate/practice"
-              className="px-6 py-2.5 rounded-lg border border-border/50 text-foreground text-sm hover:bg-muted/30 transition-all"
+              className="px-6 py-2.5 rounded-lg border border-border/50 text-foreground text-sm hover:bg-muted/30 transition-all cursor-pointer"
             >
               Practice Mode
             </Link>
             <Link
               to="/candidate/dashboard"
-              className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 transition-all"
+              className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 transition-all cursor-pointer shadow-lg shadow-primary/20"
             >
-              Dashboard
+              Return to Dashboard
             </Link>
           </div>
         </div>
@@ -1231,6 +1760,21 @@ const InterviewRoom = () => {
               <span className="text-xs text-amber-400">Follow-up {followupCount}/{MAX_FOLLOWUPS}</span>
             </div>
           )}
+          {/* Window Lockdown status badge */}
+          <div className={`glass-panel px-3 py-1.5 flex items-center gap-1.5 ${isWindowLocked ? "border-emerald-500/40 text-emerald-400" : "border-amber-500/40 text-amber-400"}`}>
+            {isWindowLocked ? (
+              <>
+                <Lock className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="text-xs font-semibold tracking-wider">WINDOW LOCKED</span>
+              </>
+            ) : (
+              <>
+                <Unlock className="w-3.5 h-3.5 text-amber-400" />
+                <span className="text-xs font-semibold tracking-wider">DEV UNLOCKED</span>
+              </>
+            )}
+          </div>
+
           <button
             onClick={handleTerminate}
             className="p-2 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive hover:bg-destructive/20 transition-all cursor-pointer"
@@ -1285,7 +1829,12 @@ const InterviewRoom = () => {
         <div className="flex flex-col gap-4">
           <div className="aspect-video relative overflow-hidden rounded-xl border border-border/40">
             <CameraPreview
-              videoRef={faceAnalysis.videoRef}
+              videoRef={(el) => {
+                if (faceAnalysis.videoRef) {
+                  (faceAnalysis.videoRef as any).current = el;
+                }
+                candidateVideoRef.current = el;
+              }}
               ready={faceAnalysis.ready}
               error={faceAnalysis.error}
               proctoringStatus={proctoring.status}
@@ -1428,6 +1977,216 @@ const InterviewRoom = () => {
         proctoring={proctoring}
         signals={signals}
       />
+
+      {/* ── SECURITY HALT OVERLAY (When other/unauthorized face detected OR candidate leaves frame) ── */}
+      {isSecurityHalted && (
+        <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="max-w-md w-full bg-card border-2 border-amber-500/50 rounded-2xl p-6 text-center space-y-5 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            {outOfFrameCountdown !== null ? (
+              /* Out of Frame 5-second countdown mode */
+              <>
+                <div className="relative w-24 h-24 mx-auto flex items-center justify-center">
+                  <div className="absolute inset-0 rounded-full border-4 border-rose-500/20 animate-ping" />
+                  <div className="w-20 h-20 rounded-full bg-rose-500/10 border-2 border-rose-500 flex items-center justify-center shadow-[0_0_20px_rgba(244,63,94,0.4)]">
+                    <span className="font-mono text-3xl font-extrabold text-rose-400">
+                      {outOfFrameCountdown}s
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <span className="inline-block px-3 py-1 rounded-full text-[11px] font-bold tracking-wider uppercase bg-rose-500/10 border border-rose-500/30 text-rose-400 mb-2">
+                    OUT OF FRAME · 5s AUTO-TERMINATION
+                  </span>
+                  <h2 className="text-xl font-bold text-foreground">Please Return to Camera Frame</h2>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Your face is not visible. Return to camera view within <strong className="text-rose-400">{outOfFrameCountdown} seconds</strong> or the session will terminate automatically.
+                  </p>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 text-left space-y-1">
+                  <p className="font-semibold text-rose-200">⚠️ Continuous Proctoring Rule:</p>
+                  <p className="text-[11px] opacity-90">
+                    Candidate must remain facing the camera throughout the entire assessment.
+                  </p>
+                </div>
+              </>
+            ) : (
+              /* Unauthorized face or multiple faces mode */
+              <>
+                <div className="w-16 h-16 rounded-full bg-amber-500/10 border border-amber-500/40 flex items-center justify-center mx-auto animate-pulse">
+                  <ShieldAlert className="w-8 h-8 text-amber-400" />
+                </div>
+
+                <div>
+                  <span className="inline-block px-3 py-1 rounded-full text-[11px] font-bold tracking-wider uppercase bg-amber-500/10 border border-amber-500/30 text-amber-400 mb-2">
+                    SECURITY PROTOCOL HALT
+                  </span>
+                  <h2 className="text-xl font-bold text-foreground">Interview Temporarily Halted</h2>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {securityHaltReason || "An unverified or secondary face was detected in your webcam feed."}
+                  </p>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-left space-y-2">
+                  <div className="flex items-center justify-between font-semibold text-amber-300">
+                    <span>Infraction Counter</span>
+                    <span className="font-mono text-xs px-2.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 font-bold">
+                      {faceViolationsCount} / 2 Allowed
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-amber-200/80">
+                    ⚠️ If an unauthorized face is detected <strong>more than 2 times</strong>, your session will be automatically terminated.
+                  </p>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-muted/30 border border-border/40 text-xs text-muted-foreground text-left space-y-1.5">
+                  <p className="font-semibold text-foreground flex items-center gap-1.5">
+                    <UserCheck className="w-4 h-4 text-emerald-400" /> How to Resume:
+                  </p>
+                  <ul className="list-disc pl-4 space-y-1 text-[11px]">
+                    <li>Ensure only the registered candidate is in the camera frame.</li>
+                    <li>Face the webcam directly with your face unobstructed.</li>
+                    <li>Normal clothing and spectacles are fully supported & ignored by the biometrics model.</li>
+                  </ul>
+                </div>
+              </>
+            )}
+
+            <div className="flex items-center justify-center gap-2 text-xs text-primary font-medium animate-pulse pt-1">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              <span>Scanning camera feed... interview will resume once verified face is restored</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── DEV MODE: WINDOW LOCK CONTROL (Bottom Center Bar) ── */}
+      <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 p-1.5 px-3 rounded-full bg-black/85 backdrop-blur-md border border-border/60 shadow-2xl transition-all">
+        <div className="flex items-center gap-1.5 text-[11px] font-mono pr-2.5 border-r border-border/40">
+          <span className={`w-2 h-2 rounded-full ${isWindowLocked ? "bg-emerald-400 animate-pulse" : "bg-amber-400"}`} />
+          <span className="text-muted-foreground font-semibold">DEV MODE</span>
+        </div>
+
+        {isWindowLocked ? (
+          <button
+            onClick={toggleDevModeLock}
+            className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 text-xs font-semibold transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-sm"
+            title="Dev Mode: Click to unlock window and disable kiosk lockdown"
+          >
+            <Unlock className="w-3.5 h-3.5 text-amber-400" />
+            <span>Unlock Window</span>
+          </button>
+        ) : (
+          <button
+            onClick={toggleDevModeLock}
+            className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 text-xs font-semibold transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-sm"
+            title="Dev Mode: Click to re-engage locked exam mode"
+          >
+            <Lock className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Re-lock Window</span>
+          </button>
+        )}
+
+        <span className="text-[10px] text-muted-foreground/80 hidden sm:inline pl-1">
+          {isWindowLocked ? "🔒 Window Locked (Anti-cheat Active)" : "🔓 Unlocked for Developer Mode"}
+        </span>
+      </div>
+
+      {/* ── FULLSCREEN PERMISSION PROMPT MODAL ── */}
+      {needsFullscreenPrompt && isWindowLocked && !terminated && !isFinished && (
+        <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="max-w-md w-full bg-card border-2 border-primary/50 rounded-2xl p-6 text-center space-y-4 shadow-2xl animate-in fade-in zoom-in-95">
+            <div className="w-16 h-16 rounded-full bg-primary/10 border border-primary/40 flex items-center justify-center mx-auto">
+              <Lock className="w-8 h-8 text-primary animate-pulse" />
+            </div>
+            <div>
+              <span className="inline-block px-3 py-1 rounded-full text-[11px] font-bold tracking-wider uppercase bg-primary/10 border border-primary/30 text-primary mb-2">
+                EXAM LOCKDOWN PROTOCOL
+              </span>
+              <h2 className="text-xl font-bold text-foreground">Locked Fullscreen Mode Required</h2>
+              <p className="text-xs text-muted-foreground mt-1">
+                To prevent cheating and ensure assessment integrity, the interview window must run locked in full-screen until completion.
+              </p>
+            </div>
+            <div className="p-3.5 rounded-xl bg-muted/30 border border-border/40 text-xs text-muted-foreground text-left space-y-1.5">
+              <p className="font-semibold text-foreground">Anti-Cheat Rules Enforced:</p>
+              <ul className="list-disc pl-4 space-y-1 text-[11px]">
+                <li>Exiting the window or switching tabs is strictly forbidden.</li>
+                <li>System shortcuts and right-click inspect are disabled.</li>
+                <li>A developer unlock toggle is available at the bottom.</li>
+              </ul>
+            </div>
+            <div className="flex flex-col gap-2 pt-2">
+              <button
+                onClick={enterFullscreenAndLock}
+                className="w-full py-3 rounded-xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-primary/25"
+              >
+                <Maximize2 className="w-4 h-4" />
+                <span>Enter Locked Fullscreen Mode</span>
+              </button>
+              <button
+                onClick={toggleDevModeLock}
+                className="text-xs text-muted-foreground hover:text-amber-400 py-1.5 transition-colors cursor-pointer"
+              >
+                Continue in Unlocked Mode (Dev Only)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── WINDOW LOCK VIOLATION / 5-SECOND TERMINATION WARNING MODAL ── */}
+      {showWindowViolationModal && isWindowLocked && !terminated && !isFinished && !needsFullscreenPrompt && (
+        <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="max-w-md w-full bg-card border-2 border-rose-500/70 rounded-2xl p-6 text-center space-y-4 shadow-2xl animate-in fade-in zoom-in-95">
+            {/* Animated 5s countdown timer badge */}
+            <div className="relative w-24 h-24 mx-auto flex items-center justify-center">
+              <div className="absolute inset-0 rounded-full border-4 border-rose-500/30 animate-ping" />
+              <div className="w-20 h-20 rounded-full bg-rose-500/10 border-2 border-rose-500 flex items-center justify-center shadow-[0_0_25px_rgba(244,63,94,0.5)]">
+                <span className="font-mono text-3xl font-extrabold text-rose-400">
+                  {windowExitCountdown !== null ? windowExitCountdown : 5}s
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <span className="inline-block px-3 py-1 rounded-full text-[11px] font-bold tracking-wider uppercase bg-rose-500/10 border border-rose-500/30 text-rose-400 mb-2">
+                WINDOW SWITCH / FULLSCREEN LOST · 5s AUTO-TERMINATION
+              </span>
+              <h2 className="text-xl font-bold text-foreground">Return to Locked Fullscreen Immediately</h2>
+              <p className="text-xs text-muted-foreground mt-1">
+                You switched tabs, minimized, or exited full-screen. Return within{" "}
+                <strong className="text-rose-400 font-mono text-sm">{windowExitCountdown !== null ? windowExitCountdown : 5} seconds</strong>{" "}
+                or this interview will be terminated permanently.
+              </p>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/25 text-xs text-left space-y-1.5">
+              <p className="font-semibold text-rose-200">⚠️ Strict Examination Policy:</p>
+              <p className="text-[11px] text-rose-200/90 leading-relaxed">
+                Candidates must remain in the locked full-screen interview window at all times. Switching to other tabs or applications is strictly prohibited.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2 pt-2">
+              <button
+                onClick={enterFullscreenAndLock}
+                className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-semibold text-sm transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/25 animate-pulse"
+              >
+                <Maximize2 className="w-4 h-4" />
+                <span>Return to Locked Fullscreen</span>
+              </button>
+              <button
+                onClick={toggleDevModeLock}
+                className="text-xs text-muted-foreground hover:text-amber-400 py-1.5 transition-colors cursor-pointer"
+              >
+                Unlock Window (Dev Mode)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

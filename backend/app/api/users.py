@@ -17,6 +17,7 @@ router = APIRouter(prefix="/users", tags=["users"])
 class ProfilePhotoRequest(BaseModel):
     photo: str
     email: Optional[str] = None  # Add email field for development
+    face_descriptor: Optional[List[float]] = None
 
 # Schema for full profile data
 class ProfileDataRequest(BaseModel):
@@ -297,9 +298,12 @@ async def save_profile_photo(photo_data: ProfilePhotoRequest, request: Request):
             )
         
         # Update user document with profile photo
+        update_doc = {"profile_photo": photo_data.photo}
+        if photo_data.face_descriptor:
+            update_doc["face_descriptor"] = photo_data.face_descriptor
         result = await users_collection.update_one(
             {"email": user_email},
-            {"$set": {"profile_photo": photo_data.photo}},
+            {"$set": update_doc},
             upsert=True
         )
         
@@ -370,7 +374,11 @@ async def get_profile_photo(email: str = None, request: Request = None):
         if not profile_photo:
             return {"success": False, "photo": None, "message": "No profile photo found"}
         
-        return {"success": True, "photo": profile_photo}
+        return {
+            "success": True, 
+            "photo": profile_photo,
+            "face_descriptor": user_doc.get("face_descriptor")
+        }
         
     except HTTPException:
         raise

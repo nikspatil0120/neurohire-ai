@@ -3,11 +3,16 @@ import { Camera, CameraOff, Loader2, AlertCircle } from 'lucide-react';
 
 interface CandidateCameraProps {
   onStream?: (stream: MediaStream) => void;
+  onVideoReady?: (video: HTMLVideoElement) => void;
   enabled?: boolean;
 }
 
-export const CandidateCamera = ({ onStream, enabled = true }: CandidateCameraProps) => {
+export const CandidateCamera = ({ onStream, onVideoReady, enabled = true }: CandidateCameraProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const onVideoReadyRef = useRef(onVideoReady);
+  onVideoReadyRef.current = onVideoReady;
+  const onStreamRef = useRef(onStream);
+  onStreamRef.current = onStream;
   const [isLoading, setIsLoading] = useState(false); // Changed to false to render video immediately
   const [error, setError] = useState<string | null>(null);
   const [hasPermission, setHasPermission] = useState(false);
@@ -67,12 +72,13 @@ export const CandidateCamera = ({ onStream, enabled = true }: CandidateCameraPro
           // Force play
           await videoRef.current.play();
           console.log('▶️ Video playing successfully');
+          onVideoReadyRef.current?.(videoRef.current);
         } else {
           console.error('❌ videoRef.current is null after camera start!');
         }
 
         setHasPermission(true);
-        onStream?.(stream);
+        onStreamRef.current?.(stream);
 
         console.log('✅ Candidate camera started');
       } catch (err) {
@@ -99,7 +105,7 @@ export const CandidateCamera = ({ onStream, enabled = true }: CandidateCameraPro
         streamRef.current = null;
       }
     };
-  }, [enabled, onStream]);
+  }, [enabled]);
 
   // Always render video element (no loading state prevents rendering)
   // Error state

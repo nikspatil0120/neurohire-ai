@@ -172,6 +172,41 @@ class EmailService:
         except Exception as e:
             logger.error(f"Error sending rejection email: {e}")
             return False
+
+    async def send_bulk_rejection_emails(self, candidates: list, job_title: str, company_name: str) -> dict:
+        """Send bulk rejection emails via node email service with direct fallback"""
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.email_service_url}/bulk-rejection",
+                    json={
+                        "candidates": candidates,
+                        "jobTitle": job_title,
+                        "companyName": company_name
+                    },
+                    timeout=30.0
+                )
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    logger.warning(f"Bulk rejection returned {response.status_code}: {response.text}")
+        except Exception as e:
+            logger.error(f"Error in send_bulk_rejection_emails via node service: {e}")
+
+        # Fallback: send individually
+        sent = 0
+        failed = 0
+        for cand in candidates:
+            to = cand.get("email") or cand.get("candidate_email")
+            name = cand.get("name") or cand.get("candidate_name") or "Candidate"
+            if to:
+                ok = await self.send_rejection_email(to, name, job_title, company_name)
+                if ok:
+                    sent += 1
+                else:
+                    failed += 1
+        return {"success": True, "total": len(candidates), "sentCount": sent, "failedCount": failed}
+
     
     async def send_interview_invitation(self, to: str, candidate_name: str, job_title: str, company_name: str, interview_date: str, interview_link: Optional[str] = None) -> bool:
         """Send interview invitation email"""

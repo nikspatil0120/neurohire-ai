@@ -198,14 +198,11 @@ const emailTemplates = {
               <li>Final candidates will be invited for AI-powered interviews</li>
             </ul>
           </div>
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="http://localhost:3000/candidate/interviews" style="background: #fc466b; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold;">Track Your Application</a>
-          </div>
           <p style="font-size: 14px; color: #666; margin-top: 30px;">Best regards,<br>The NeuroHire AI Team</p>
         </div>
       </div>
     `,
-    text: `Application Submitted! Hello ${candidateName}, Your application for ${jobTitle} at ${companyName} has been successfully submitted! Your application will be reviewed by the hiring team and you'll receive updates on your status. Track your application in your dashboard. Best regards, The NeuroHire AI Team`
+    text: `Application Submitted! Hello ${candidateName}, Your application for ${jobTitle} at ${companyName} has been successfully submitted! Your application will be reviewed by the hiring team and you'll receive updates on your status. Best regards, The NeuroHire AI Team`
   }),
 
   selectionEmail: (candidateName, jobTitle, companyName, applicationId = '', frontendUrl = 'http://localhost:5173') => {
@@ -284,9 +281,6 @@ const emailTemplates = {
             </ul>
           </div>
           <p style="font-size: 16px; color: #333;">We appreciate the time you invested in the application process and wish you the best in your job search.</p>
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="http://localhost:3000/candidate/opportunities" style="background: #eb3349; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold;">Explore More Opportunities</a>
-          </div>
           <p style="font-size: 14px; color: #666; margin-top: 30px;">Best regards,<br>The ${companyName} Team</p>
         </div>
       </div>

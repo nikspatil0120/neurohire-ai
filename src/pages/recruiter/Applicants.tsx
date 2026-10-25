@@ -6,7 +6,7 @@ import {
   LayoutDashboard, FilePlus, Database, BarChart2, MessageCircle, LogOut,
   Briefcase, Users, Search, Filter, Calendar, Clock, ChevronDown,
   Mail, User, Briefcase as BriefcaseIcon, CheckCircle, XCircle,
-  AlertCircle, RefreshCw, Eye, X, Brain, FileText,
+  AlertCircle, RefreshCw, Eye, X, Brain, FileText, Send, Loader2
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
@@ -44,6 +44,8 @@ interface Application {
   final_interview_score?: number;
   interview_report?: any;
   scores?: any;
+  rejection_email_sent?: boolean;
+  rejection_email_sent_at?: string;
   applied_at: string;
   created_at: string;
   updated_at: string;
@@ -57,6 +59,9 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.
   test_completed:    { label: "Test Completed",    color: "bg-purple-500/20 text-purple-400 border-purple-500/40", icon: <CheckCircle className="w-3.5 h-3.5" /> },
   interview_pending: { label: "Interview Pending", color: "bg-cyan-500/20 text-cyan-400 border-cyan-500/40",    icon: <AlertCircle className="w-3.5 h-3.5" /> },
   selected:          { label: "Selected",          color: "bg-green-500/20 text-green-400 border-green-500/40", icon: <CheckCircle className="w-3.5 h-3.5" /> },
+  offer_sent:        { label: "Offer Sent",        color: "bg-teal-500/20 text-teal-400 border-teal-500/40",    icon: <CheckCircle className="w-3.5 h-3.5" /> },
+  offer_accepted:    { label: "Offer Accepted",    color: "bg-emerald-500/20 text-emerald-400 border-emerald-500/40", icon: <CheckCircle className="w-3.5 h-3.5" /> },
+  offer_rejected:    { label: "Offer Declined",    color: "bg-gray-500/20 text-gray-400 border-gray-500/40",    icon: <XCircle className="w-3.5 h-3.5" /> },
   rejected:          { label: "Rejected",          color: "bg-red-500/20 text-red-400 border-red-500/40",       icon: <XCircle className="w-3.5 h-3.5" /> },
 };
 
@@ -82,6 +87,7 @@ const Applicants = () => {
   const [aiReportModalOpen, setAiReportModalOpen] = useState(false);
   const [activeReportData, setActiveReportData] = useState<any>(null);
   const [loadingReport, setLoadingReport] = useState(false);
+  const [bulkRejecting, setBulkRejecting] = useState(false);
 
   const openAIReport = async (app: Application) => {
     if (app.interview_report) {
@@ -226,6 +232,60 @@ const Applicants = () => {
     }
   };
 
+  // ── Bulk reject role ──────────────────────────────────────────────────────────
+  const handleBulkRejectRole = async () => {
+    if (filterJob === "all") return;
+    const roleApps = applications.filter(a => a.job_id === filterJob);
+    const unselected = roleApps.filter(
+      a => a.application_status !== "selected" && 
+           a.application_status !== "offer_sent" && 
+           a.application_status !== "offer_accepted"
+    );
+
+    if (unselected.length === 0) {
+      toast({ title: "No Candidates", description: "No unselected candidates left to reject for this position." });
+      return;
+    }
+
+    const jobTitle = jobOptions.find(j => j.id === filterJob)?.title || "this job";
+
+    if (!window.confirm(`Are you sure you want to send rejection emails to all ${unselected.length} unselected candidate(s) for ${jobTitle} in 1 click?`)) {
+      return;
+    }
+
+    setBulkRejecting(true);
+    try {
+      const res = await fetch(`${API}/applications/jobs/${filterJob}/bulk-reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          application_ids: unselected.map(c => c._id),
+          send_emails: true
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || data.detail || "Failed to bulk reject candidates");
+      }
+
+      const rejectedIdSet = new Set(data.rejected_ids || unselected.map(c => c._id));
+      setApplications(prev => prev.map(a => 
+        rejectedIdSet.has(a._id) 
+          ? { ...a, application_status: "rejected", rejection_email_sent: true, rejection_email_sent_at: new Date().toISOString() } 
+          : a
+      ));
+
+      toast({
+        title: "Rejection Emails Sent 🚀",
+        description: `Successfully dispatched rejection emails to ${data.count || unselected.length} candidate(s).`,
+      });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message || "Failed to send rejection emails", variant: "destructive" });
+    } finally {
+      setBulkRejecting(false);
+    }
+  };
+
   // ── Stats (Scoped to selected role if filtered) ───────────────────────────────
   const relevantApps = filterJob === "all" ? applications : applications.filter(a => a.job_id === filterJob);
   const stats = {
@@ -305,7 +365,7 @@ const Applicants = () => {
 
         {/* ── Active Role Filter Banner ── */}
         {filterJob !== "all" && (
-          <div className="flex items-center justify-between p-3.5 rounded-xl bg-primary/10 border border-primary/30 text-xs text-foreground animate-in fade-in-0">
+          <div className="flex items-center justify-between p-3.5 rounded-xl bg-primary/10 border border-primary/30 text-xs text-foreground animate-in fade-in-0 flex-wrap gap-2">
             <div className="flex items-center gap-2.5">
               <div className="w-7 h-7 rounded-lg bg-primary/20 flex items-center justify-center text-primary">
                 <BriefcaseIcon className="w-4 h-4" />
@@ -319,19 +379,31 @@ const Applicants = () => {
                 </p>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                setFilterJob("all");
-                const next = new URLSearchParams(searchParams);
-                next.delete("jobId");
-                setSearchParams(next, { replace: true });
-              }}
-              className="px-3 py-1.5 rounded-lg bg-primary/15 hover:bg-primary/25 text-primary text-xs font-semibold transition-colors flex items-center gap-1.5 border border-primary/20"
-            >
-              <X className="w-3.5 h-3.5" />
-              Show All Roles ({applications.length})
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleBulkRejectRole}
+                disabled={bulkRejecting}
+                className="px-3 py-1.5 rounded-lg bg-red-500/15 hover:bg-red-500/25 text-red-400 border border-red-500/30 text-xs font-semibold transition-all flex items-center gap-1.5 disabled:opacity-50 shadow-sm"
+                title="Send polite rejection email to all unselected candidates for this role in one click"
+              >
+                {bulkRejecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                Send Rejection Email to All Rejected
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterJob("all");
+                  const next = new URLSearchParams(searchParams);
+                  next.delete("jobId");
+                  setSearchParams(next, { replace: true });
+                }}
+                className="px-3 py-1.5 rounded-lg bg-primary/15 hover:bg-primary/25 text-primary text-xs font-semibold transition-colors flex items-center gap-1.5 border border-primary/20"
+              >
+                <X className="w-3.5 h-3.5" />
+                Show All Roles ({applications.length})
+              </button>
+            </div>
           </div>
         )}
 

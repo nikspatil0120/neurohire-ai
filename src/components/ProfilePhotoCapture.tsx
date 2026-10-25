@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from 'react';
 import * as faceapi from 'face-api.js';
-import { Camera, CheckCircle, RefreshCw, Loader } from 'lucide-react';
+import { Camera, CheckCircle, RefreshCw, Loader, Upload, ShieldCheck, Sparkles, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface ProfilePhotoCaptureProps {
@@ -12,31 +12,35 @@ const ProfilePhotoCapture = ({ onPhotoSaved, email }: ProfilePhotoCaptureProps) 
   const { user } = useAuth();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
+  const [descriptor, setDescriptor] = useState<number[] | null>(null);
+  const [faceAnalyzed, setFaceAnalyzed] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [faceDetected, setFaceDetected] = useState(false);
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const [cameraStarted, setCameraStarted] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [status, setStatus] = useState('Click "Start Camera" to begin');
+  const [status, setStatus] = useState('Click "Start Camera" or "Upload Photo" to begin');
   const [countdown, setCountdown] = useState<number | null>(null);
   const detectionInterval = useRef<any>(null);
   const countdownInterval = useRef<any>(null);
   const autoCaptureTimeout = useRef<any>(null);
   const isCountingDown = useRef<boolean>(false);
 
-  // Load face-api models on mount (but don't start camera)
+  // Load face-api models on mount
   useEffect(() => {
     const loadModels = async () => {
       try {
-        setStatus('Loading face detection models...');
+        setStatus('Loading face detection & feature analysis models...');
         await faceapi.nets.tinyFaceDetector.loadFromUri('/models');
         await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
         await faceapi.nets.faceRecognitionNet.loadFromUri('/models');
         setModelsLoaded(true);
-        setStatus('Click "Start Camera" to begin');
+        setStatus('Click "Start Camera" or "Upload Photo" to begin');
       } catch (err) {
         setError('Failed to load face detection models. Please refresh.');
         setIsLoading(false);
@@ -90,19 +94,17 @@ const ProfilePhotoCapture = ({ onPhotoSaved, email }: ProfilePhotoCaptureProps) 
 
       const detection = await faceapi.detectSingleFace(
         videoRef.current,
-        new faceapi.TinyFaceDetectorOptions()
+        new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.5 })
       );
 
       if (detection) {
         if (!faceDetected && !isCountingDown.current) {
-          // Face just detected and no countdown running - start countdown
           setFaceDetected(true);
-          setStatus('✅ Face detected! Auto-capturing...');
+          setStatus('✅ Face detected! Auto-capturing in 5s...');
           startCountdown();
         }
       } else {
         if (faceDetected) {
-          // Face lost - cancel countdown
           setFaceDetected(false);
           setStatus('👤 Position your face in the frame');
           cancelCountdown();
@@ -112,10 +114,7 @@ const ProfilePhotoCapture = ({ onPhotoSaved, email }: ProfilePhotoCaptureProps) 
   };
 
   const startCountdown = () => {
-    // Clear any existing countdown
     cancelCountdown();
-    
-    // Set flag to prevent multiple countdowns
     isCountingDown.current = true;
     setCountdown(5);
     
@@ -123,7 +122,6 @@ const ProfilePhotoCapture = ({ onPhotoSaved, email }: ProfilePhotoCaptureProps) 
       setCountdown(prev => {
         if (prev === null || prev <= 1) {
           cancelCountdown();
-          // Auto capture after countdown
           autoCaptureTimeout.current = setTimeout(() => {
             capturePhoto();
           }, 100);
@@ -147,14 +145,48 @@ const ProfilePhotoCapture = ({ onPhotoSaved, email }: ProfilePhotoCaptureProps) 
     isCountingDown.current = false;
   };
 
-  const capturePhoto = () => {
+  // Analyze facial features from an image data URL
+  const analyzeFaceFeatures = async (dataUrl: string) => {
+    setIsAnalyzing(true);
+    setStatus('Analyzing facial landmarks & feature embedding...');
+    setError(null);
+
+    try {
+      const img = await faceapi.fetchImage(dataUrl);
+      const detection = await faceapi
+        .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.45 }))
+        .withFaceLandmarks()
+        .withFaceDescriptor();
+
+      if (!detection) {
+        setFaceAnalyzed(false);
+        setDescriptor(null);
+        setError('No clear face detected. Please ensure your face is well-lit, unobstructed, and front-facing.');
+        setStatus('Facial analysis failed. Please retake or upload another photo.');
+        return false;
+      }
+
+      setFaceAnalyzed(true);
+      setDescriptor(Array.from(detection.descriptor));
+      setStatus('✅ Facial features successfully mapped & verified! (Clothing & spectacles invariant)');
+      return true;
+    } catch (err) {
+      console.error('[ProfilePhotoCapture] Analysis error:', err);
+      setError('Could not analyze facial features. Please try a different photo.');
+      return false;
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const capturePhoto = async () => {
     if (!videoRef.current || !canvasRef.current) return;
 
     const canvas = canvasRef.current;
     const video = videoRef.current;
 
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -164,21 +196,42 @@ const ProfilePhotoCapture = ({ onPhotoSaved, email }: ProfilePhotoCaptureProps) 
     ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0);
 
-    const photo = canvas.toDataURL('image/jpeg', 0.8);
+    const photo = canvas.toDataURL('image/jpeg', 0.85);
     setCapturedPhoto(photo);
-    setStatus('Photo captured! Save or retake.');
 
     // Stop camera after capture
     stopCamera();
-
-    // Stop face detection and countdown
     if (detectionInterval.current) clearInterval(detectionInterval.current);
     cancelCountdown();
+
+    await analyzeFaceFeatures(photo);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    stopCamera();
+    cancelCountdown();
+    if (detectionInterval.current) clearInterval(detectionInterval.current);
+
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const result = ev.target?.result as string;
+      if (result) {
+        setCapturedPhoto(result);
+        await analyzeFaceFeatures(result);
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   const retakePhoto = () => {
     setCapturedPhoto(null);
-    setStatus('Click "Start Camera" to begin');
+    setDescriptor(null);
+    setFaceAnalyzed(false);
+    setError(null);
+    setStatus('Click "Start Camera" or "Upload Photo" to begin');
     setFaceDetected(false);
     setCameraStarted(false);
     isCountingDown.current = false;
@@ -197,18 +250,12 @@ const ProfilePhotoCapture = ({ onPhotoSaved, email }: ProfilePhotoCaptureProps) 
         setIsSaving(false);
         return;
       }
-      console.log('[ProfilePhotoCapture] ===== SAVE PHOTO START =====');
-      console.log('[ProfilePhotoCapture] Token found:', token ? 'Yes' : 'No');
-      console.log('[ProfilePhotoCapture] Token value:', token);
-      console.log('[ProfilePhotoCapture] Photo size:', capturedPhoto.length, 'characters');
-      console.log('[ProfilePhotoCapture] User email:', userEmail);
       
-      const requestBody = { photo: capturedPhoto, email: userEmail };
-      console.log('[ProfilePhotoCapture] Request URL:', 'http://localhost:8000/api/v1/users/profile/photo');
-      console.log('[ProfilePhotoCapture] Request headers:', {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token?.substring(0, 30)}...`
-      });
+      const requestBody = {
+        photo: capturedPhoto,
+        email: userEmail,
+        face_descriptor: descriptor || undefined,
+      };
       
       const response = await fetch('http://localhost:8000/api/v1/users/profile/photo', {
         method: 'POST',
@@ -218,29 +265,21 @@ const ProfilePhotoCapture = ({ onPhotoSaved, email }: ProfilePhotoCaptureProps) 
         },
         body: JSON.stringify(requestBody)
       });
-
-      console.log('[ProfilePhotoCapture] Response status:', response.status);
-      console.log('[ProfilePhotoCapture] Response ok:', response.ok);
       
       const data = await response.json();
-      console.log('[ProfilePhotoCapture] Response data:', data);
 
       if (data.success) {
-        console.log('[ProfilePhotoCapture] ✅ SUCCESS! Photo saved');
-        setStatus('✅ Profile photo saved successfully!');
+        setStatus('✅ Profile photo and facial feature profile saved successfully!');
         stopCamera();
         onPhotoSaved(capturedPhoto);
       } else {
-        console.error('[ProfilePhotoCapture] ❌ FAILED:', data);
-        console.error('[ProfilePhotoCapture] Full response:', JSON.stringify(data, null, 2));
         setError(data.message || data.detail || 'Failed to save photo. Please try again.');
       }
     } catch (err) {
-      console.error('[ProfilePhotoCapture] ❌ EXCEPTION:', err);
+      console.error('[ProfilePhotoCapture] Save exception:', err);
       setError('Network error. Please try again.');
     } finally {
       setIsSaving(false);
-      console.log('[ProfilePhotoCapture] ===== SAVE PHOTO END =====');
     }
   };
 
@@ -325,47 +364,117 @@ const ProfilePhotoCapture = ({ onPhotoSaved, email }: ProfilePhotoCaptureProps) 
         </div>
       )}
 
+      {/* Hidden file input */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        accept="image/*"
+        className="hidden"
+        onChange={handleFileUpload}
+      />
+
+      {/* Facial Feature Analysis Card (Shown when photo captured/uploaded) */}
+      {capturedPhoto && (
+        <div className="w-full max-w-sm rounded-xl border border-border/50 bg-card/60 backdrop-blur-md p-3.5 space-y-2 text-xs">
+          <div className="flex items-center justify-between font-semibold text-foreground">
+            <span className="flex items-center gap-1.5 text-primary">
+              <Sparkles className="w-4 h-4" /> Facial Feature Analysis
+            </span>
+            {isAnalyzing ? (
+              <span className="text-amber-400 flex items-center gap-1">
+                <Loader className="w-3.5 h-3.5 animate-spin" /> Analyzing...
+              </span>
+            ) : faceAnalyzed ? (
+              <span className="text-emerald-400 flex items-center gap-1 font-medium">
+                <ShieldCheck className="w-3.5 h-3.5" /> Verified
+              </span>
+            ) : (
+              <span className="text-rose-400 flex items-center gap-1 font-medium">
+                <AlertCircle className="w-3.5 h-3.5" /> Failed
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 pt-1 text-[11px]">
+            <div className={`p-2 rounded-lg border ${faceAnalyzed ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-muted/30 border-border/30 text-muted-foreground'}`}>
+              <div className="font-semibold">68 Landmarks</div>
+              <div className="text-[10px] opacity-80">Jaw, nose, eyes & lips</div>
+            </div>
+            <div className={`p-2 rounded-lg border ${faceAnalyzed ? 'bg-primary/10 border-primary/30 text-primary-foreground' : 'bg-muted/30 border-border/30 text-muted-foreground'}`}>
+              <div className="font-semibold">128D Embedding</div>
+              <div className="text-[10px] opacity-80">Facial bone geometry</div>
+            </div>
+          </div>
+
+          <p className="text-[10px] text-muted-foreground text-center pt-1 border-t border-border/30">
+            🛡️ AI ignores clothing, hairstyle, and spectacles — focusing exclusively on unique facial geometry.
+          </p>
+        </div>
+      )}
+
       {/* Action Buttons */}
-      <div className="flex gap-3">
+      <div className="flex flex-wrap gap-3 justify-center">
         {!capturedPhoto ? (
           <>
             {!cameraStarted ? (
-              <button
-                onClick={startCamera}
-                disabled={!modelsLoaded || isLoading}
-                className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-primary text-primary-foreground font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-primary/90 transition-all"
-              >
-                {isLoading ? <Loader className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
-                {isLoading ? 'Starting...' : 'Start Camera'}
-              </button>
+              <>
+                <button
+                  onClick={startCamera}
+                  disabled={!modelsLoaded || isLoading}
+                  className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-primary text-primary-foreground font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-primary/90 transition-all cursor-pointer"
+                >
+                  {isLoading ? <Loader className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
+                  {isLoading ? 'Starting...' : 'Start Camera'}
+                </button>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={!modelsLoaded || isLoading}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-lg border border-border/60 text-foreground font-medium hover:bg-muted/30 transition-all cursor-pointer"
+                >
+                  <Upload className="w-4 h-4 text-primary" />
+                  Upload Photo
+                </button>
+              </>
             ) : (
-              <button
-                onClick={capturePhoto}
-                disabled={!faceDetected || isLoading || countdown !== null}
-                className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-primary text-primary-foreground font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-primary/90 transition-all"
-              >
-                <Camera className="w-4 h-4" />
-                {countdown !== null ? `Capturing in ${countdown}...` : 'Capture Photo'}
-              </button>
+              <>
+                <button
+                  onClick={capturePhoto}
+                  disabled={!faceDetected || isLoading || countdown !== null}
+                  className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-primary text-primary-foreground font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-primary/90 transition-all cursor-pointer"
+                >
+                  <Camera className="w-4 h-4" />
+                  {countdown !== null ? `Capturing in ${countdown}...` : 'Capture Photo'}
+                </button>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border/60 text-foreground font-medium hover:bg-muted/30 transition-all cursor-pointer"
+                >
+                  <Upload className="w-4 h-4" />
+                  Upload File
+                </button>
+              </>
             )}
           </>
         ) : (
           <>
             <button
               onClick={retakePhoto}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border/50 text-foreground hover:bg-muted/30 transition-all"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border/50 text-foreground hover:bg-muted/30 transition-all cursor-pointer"
             >
               <RefreshCw className="w-4 h-4" />
-              Retake
+              Retake / New
             </button>
             <button
               onClick={savePhoto}
-              disabled={isSaving}
-              className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-green-600 text-white font-medium disabled:opacity-50 hover:bg-green-700 transition-all"
+              disabled={isSaving || isAnalyzing || !faceAnalyzed}
+              className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-emerald-600 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-emerald-700 transition-all cursor-pointer shadow-lg shadow-emerald-600/20"
             >
-              {isSaving ? <Loader className="w-4 h-4 animate-spin" />
-                : <CheckCircle className="w-4 h-4" />}
-              {isSaving ? 'Saving...' : 'Save Photo'}
+              {isSaving ? (
+                <Loader className="w-4 h-4 animate-spin" />
+              ) : (
+                <CheckCircle className="w-4 h-4" />
+              )}
+              {isSaving ? 'Saving...' : 'Confirm & Save Profile Photo'}
             </button>
           </>
         )}

@@ -318,6 +318,69 @@ router.post('/rejection', async (req, res) => {
   }
 });
 
+// Send bulk rejection emails
+router.post('/bulk-rejection', async (req, res) => {
+  try {
+    const { candidates, jobTitle, companyName } = req.body;
+
+    if (!Array.isArray(candidates) || candidates.length === 0 || !jobTitle || !companyName) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: candidates array, jobTitle, and companyName are required'
+      });
+    }
+
+    console.log(`📧 Starting bulk rejection dispatch for ${candidates.length} candidates (${jobTitle} at ${companyName})...`);
+
+    const results = [];
+    let sentCount = 0;
+    let failedCount = 0;
+
+    for (const cand of candidates) {
+      const toEmail = cand.to || cand.email || cand.candidate_email;
+      const candName = cand.candidateName || cand.name || cand.candidate_name || 'Candidate';
+
+      if (!toEmail) {
+        results.push({ email: toEmail, name: candName, success: false, error: 'Missing email address' });
+        failedCount++;
+        continue;
+      }
+
+      try {
+        const resMail = await sendRejectionEmail(toEmail, candName, jobTitle, companyName);
+        if (resMail.success) {
+          sentCount++;
+          results.push({ email: toEmail, name: candName, success: true, messageId: resMail.messageId });
+        } else {
+          failedCount++;
+          results.push({ email: toEmail, name: candName, success: false, error: resMail.error });
+        }
+      } catch (err) {
+        failedCount++;
+        results.push({ email: toEmail, name: candName, success: false, error: err.message });
+      }
+    }
+
+    console.log(`✅ Bulk rejection complete: ${sentCount} sent, ${failedCount} failed`);
+
+    return res.status(200).json({
+      success: true,
+      message: `Bulk rejection email dispatch completed (${sentCount} sent, ${failedCount} failed)`,
+      total: candidates.length,
+      sentCount,
+      failedCount,
+      results
+    });
+  } catch (error) {
+    console.error('Bulk rejection email route error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error during bulk rejection',
+      error: error.message
+    });
+  }
+});
+
 // Send custom email with attachments
 router.post('/custom', async (req, res) => {
   try {
