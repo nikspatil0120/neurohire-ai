@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import List
+from typing import List, Optional
 from bson import ObjectId
 from pydantic import BaseModel
 import json
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/users", tags=["users"])
 # Schema for profile photo
 class ProfilePhotoRequest(BaseModel):
     photo: str
-    email: str  # Add email field for development
+    email: Optional[str] = None  # Add email field for development
 
 # Schema for full profile data
 class ProfileDataRequest(BaseModel):
@@ -256,7 +256,7 @@ async def delete_user(
     return {"message": "User deleted successfully"}
 
 @router.post("/profile/photo")
-async def save_profile_photo(photo_data: ProfilePhotoRequest):
+async def save_profile_photo(photo_data: ProfilePhotoRequest, request: Request):
     """Save user profile photo to MongoDB"""
     try:
         from app.core.database import get_mongo_db
@@ -274,8 +274,21 @@ async def save_profile_photo(photo_data: ProfilePhotoRequest):
         
         users_collection = mongodb["users"]
         
-        # Use email from request
+        # Use email from request or Authorization token
         user_email = photo_data.email
+        
+        auth_header = request.headers.get("authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+            try:
+                import jwt
+                from app.config import settings
+                payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+                token_email = payload.get("sub")
+                if token_email:
+                    user_email = token_email
+            except Exception:
+                pass
         
         if not user_email:
             raise HTTPException(
@@ -305,7 +318,7 @@ async def save_profile_photo(photo_data: ProfilePhotoRequest):
         )
 
 @router.get("/profile/photo")
-async def get_profile_photo(email: str = None):
+async def get_profile_photo(email: str = None, request: Request = None):
     """Get user profile photo from MongoDB"""
     try:
         from app.core.database import get_mongo_db
@@ -323,8 +336,21 @@ async def get_profile_photo(email: str = None):
         
         users_collection = mongodb["users"]
         
-        # Use email from query parameter
+        # Use email from query parameter or Authorization token
         user_email = email
+        if not user_email and request:
+            auth_header = request.headers.get("authorization")
+            if auth_header and auth_header.startswith("Bearer "):
+                token = auth_header.split(" ")[1]
+                try:
+                    import jwt
+                    from app.config import settings
+                    payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+                    token_email = payload.get("sub")
+                    if token_email:
+                        user_email = token_email
+                except Exception:
+                    pass
         
         if not user_email:
             raise HTTPException(

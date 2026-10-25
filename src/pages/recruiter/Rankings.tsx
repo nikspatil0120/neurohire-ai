@@ -4,9 +4,10 @@ import GlassCard from "@/components/GlassCard";
 import {
   LayoutDashboard, FilePlus, Database, BarChart2,
   MessageCircle, LogOut, User, Briefcase, Users,
-  X, Download, ChevronDown, ChevronUp,
+  X, Download, ChevronDown, ChevronUp, Mail, Send, FileText, Clock, CheckCircle, XCircle
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/hooks/use-toast";
 
 const API = "http://localhost:8000/api/v1";
 
@@ -172,12 +173,22 @@ const printReport = (job: Job, rounds: RoundCol[], rows: Application[]) => {
 
 const Reports = () => {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [applications, setApplications] = useState<Application[]>([]);
   const [appsLoading, setAppsLoading] = useState(false);
   const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
+  
+  // Email modal state
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [selectedCandidate, setSelectedCandidate] = useState<Application | null>(null);
+  const [emailAction, setEmailAction] = useState<"selected" | "rejected" | "wait">("selected");
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailContent, setEmailContent] = useState("");
+  const [emailAttachments, setEmailAttachments] = useState<File[]>([]);
+  const [sendingEmail, setSendingEmail] = useState(false);
 
   const email = user?.email || (() => {
     try { return JSON.parse(localStorage.getItem("user") || "{}").email || ""; } catch { return ""; }
@@ -185,14 +196,47 @@ const Reports = () => {
 
   useEffect(() => {
     if (!email) return;
-    fetch(`${API}/jobs/recruiter/${encodeURIComponent(email)}`)
-      .then(r => r.json())
-      .then(d => {
+
+    const fetchJobs = async () => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000); // Reduced to 8 seconds
+
+      try {
+        console.log('Fetching jobs for recruiter:', email);
+        const res = await fetch(`${API}/jobs/recruiter/${encodeURIComponent(email)}`, {
+          signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+
+        const d = await res.json();
         const published = (d.jobs || []).filter((j: Job) => j.status === "published" || j.status === "expired");
+        console.log('Fetched jobs:', published.length);
         setJobs(published);
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          console.error('Fetch timeout after 8 seconds');
+          toast({
+            title: "Timeout",
+            description: "Backend is slow to respond. Please check if the Python backend is running on port 8000.",
+            variant: "destructive"
+          });
+        } else {
+          console.error('Error fetching jobs:', err);
+          toast({
+            title: "Error",
+            description: "Failed to load jobs. Please try again.",
+            variant: "destructive"
+          });
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchJobs();
   }, [email]);
 
   const openJob = async (job: Job) => {
@@ -200,11 +244,28 @@ const Reports = () => {
     setApplications([]);
     setAppsLoading(true);
     try {
-      const res = await fetch(`${API}/applications/recruiter/${encodeURIComponent(email)}?job_id=${job._id}`);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000); // Reduced to 8 seconds
+
+      console.log('Fetching applications for job:', job._id);
+      const res = await fetch(`${API}/applications/recruiter/${encodeURIComponent(email)}?job_id=${job._id}`, {
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+
       const d = await res.json();
+      console.log('Fetched applications:', d.applications?.length || 0);
       setApplications(d.applications || []);
     } catch (e) {
-      console.error(e);
+      console.error('Error fetching applications:', e);
+      toast({
+        title: "Error",
+        description: "Failed to load applications. Please try again.",
+        variant: "destructive"
+      });
     } finally {
       setAppsLoading(false);
     }
@@ -213,6 +274,292 @@ const Reports = () => {
   const closeModal = () => { setSelectedJob(null); setApplications([]); };
 
   const rounds = selectedJob ? getRounds(selectedJob) : [];
+
+  // Email draft templates (plain text for editing)
+  const generateEmailDraft = (action: "selected" | "rejected" | "wait", candidate: Application, job: Job) => {
+    const companyName = job.organization_name || "our company";
+    const jobTitle = job.title;
+    const candidateName = candidate.candidate_name;
+
+    if (action === "selected") {
+      return {
+        subject: `Congratulations! You've been selected for ${jobTitle} 🚀`,
+        content: `Hello ${candidateName},
+
+Great news! You have been selected for the position of ${jobTitle} at ${companyName}!
+
+Next Steps upon Acceptance:
+- Accept the offer using the action buttons provided to unlock your Recruiter Messenger
+- Complete required onboarding paperwork
+- Welcome to the team!
+
+This is a significant achievement, and we are excited to have you join the team!
+
+Best regards,
+The ${companyName} Team`
+      };
+    } else if (action === "rejected") {
+      return {
+        subject: `Update on your application for ${jobTitle}`,
+        content: `Hello ${candidateName},
+
+Thank you for your interest in the ${jobTitle} position at ${companyName}.
+
+After careful consideration, we regret to inform you that we have decided to move forward with other candidates for this position.
+
+Don't be discouraged!
+This decision doesn't reflect on your potential. Continue to:
+- Apply for other opportunities on NeuroHire AI
+- Keep improving your skills through our practice assessments
+- Stay engaged with your professional development
+
+We appreciate the time you invested in the application process and wish you the best in your job search.
+
+Best regards,
+The ${companyName} Team`
+      };
+    } else {
+      return {
+        subject: `Update on your application for ${jobTitle}`,
+        content: `Hello ${candidateName},
+
+Thank you for your interest in the ${jobTitle} position at ${companyName}.
+
+We are still reviewing applications for this position. Your application is currently under consideration, and we will update you on the status soon.
+
+What happens next?
+- We are evaluating all applications carefully
+- Shortlisted candidates will be contacted for further rounds
+- We appreciate your patience during this process
+
+We will keep you informed about any updates regarding your application.
+
+Best regards,
+The ${companyName} Team`
+      };
+    }
+  };
+
+  // Convert plain text to HTML for sending
+  const textToHtml = (text: string) => {
+    const companyName = selectedJob?.organization_name || "our company";
+    const gradientColor = emailAction === 'selected'
+      ? 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)'
+      : emailAction === 'rejected'
+      ? 'linear-gradient(135deg, #eb3349 0%, #f45c43 100%)'
+      : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+
+    const title = emailAction === 'selected'
+      ? 'Congratulations! 🎉'
+      : emailAction === 'rejected'
+      ? 'Application Update'
+      : 'Application Update';
+
+    const paragraphs = text.split('\n\n').map(p => {
+      if (p.startsWith('- ') || p.startsWith('• ')) {
+        const items = p.split('\n').map(item => `<li>${item.replace(/^- |• /, '')}</li>`).join('');
+        return `<ul>${items}</ul>`;
+      }
+      if (p.includes(':') && !p.includes(',')) {
+        return `<h3 style="color: #333; margin-top: 0;">${p}</h3>`;
+      }
+      return `<p style="font-size: 16px; color: #333; line-height: 1.6;">${p.replace(/\n/g, '<br/>')}</p>`;
+    }).join('');
+
+    const actionButtons = emailAction === 'selected' ? `
+      <div style="text-align: center; margin: 28px 0 20px 0;">
+        <a href="${window.location.origin}/candidate/offer-response?appId=${selectedCandidate?._id || ''}&action=accept" style="display: inline-block; background: #10b981; color: #ffffff; font-size: 16px; font-weight: bold; text-decoration: none; padding: 13px 30px; border-radius: 6px; margin: 0 8px 10px 8px; box-shadow: 0 3px 10px rgba(16,185,129,0.3);">
+          ✅ Accept Offer
+        </a>
+        <a href="${window.location.origin}/candidate/offer-response?appId=${selectedCandidate?._id || ''}&action=reject" style="display: inline-block; background: #f3f4f6; color: #6b7280; font-size: 15px; font-weight: 600; text-decoration: none; padding: 13px 24px; border-radius: 6px; margin: 0 8px 10px 8px; border: 1px solid #d1d5db;">
+          Decline Offer
+        </a>
+        <p style="font-size: 12px; color: #6b7280; margin-top: 12px;">
+          Accepting this offer unlocks your direct 1-on-1 Recruiter Messenger.
+        </p>
+      </div>
+    ` : '';
+
+    const html = `<div style="font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <div style="background: ${gradientColor}; padding: 30px; border-radius: 10px 10px 0 0; text-align: center;">
+        <h1 style="color: white; margin: 0; font-size: 26px;">${title}</h1>
+      </div>
+      <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; border: 1px solid #e5e7eb; border-top: none;">
+        ${paragraphs}
+        ${actionButtons}
+      </div>
+    </div>`;
+
+    console.log('textToHtml generated HTML length:', html.length);
+    console.log('textToHtml preview:', html.substring(0, 300));
+
+    return html;
+  };
+
+  const openEmailModal = (candidate: Application, action: "selected" | "rejected" | "wait") => {
+    if (!selectedJob) return;
+    const draft = generateEmailDraft(action, candidate, selectedJob);
+    setSelectedCandidate(candidate);
+    setEmailAction(action);
+    setEmailSubject(draft.subject);
+    setEmailContent(draft.content);
+    setEmailAttachments([]);
+    setEmailModalOpen(true);
+  };
+
+  const closeEmailModal = () => {
+    setEmailModalOpen(false);
+    setSelectedCandidate(null);
+    setEmailSubject("");
+    setEmailContent("");
+    setEmailAttachments([]);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      setEmailAttachments(Array.from(e.target.files));
+    }
+  };
+
+  const convertFileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => {
+        const result = reader.result as string;
+        if (!result) {
+          reject(new Error('File reader returned empty result'));
+          return;
+        }
+        // Remove data URL prefix (e.g., "data:application/pdf;base64,")
+        const parts = result.split(',');
+        if (parts.length < 2) {
+          reject(new Error('Invalid data URL format'));
+          return;
+        }
+        const base64 = parts[1];
+        if (!base64) {
+          reject(new Error('Base64 content is empty'));
+          return;
+        }
+        console.log(`Converted ${file.name} to base64, length: ${base64.length}`);
+        resolve(base64);
+      };
+      reader.onerror = error => reject(error);
+    });
+  };
+
+  const sendEmail = async () => {
+    if (!selectedCandidate || !selectedJob) return;
+
+    setSendingEmail(true);
+    try {
+      // Check if content was edited by comparing with original draft
+      const originalDraft = generateEmailDraft(emailAction, selectedCandidate, selectedJob);
+      const isEdited = emailContent !== originalDraft.content || emailSubject !== originalDraft.subject;
+
+      // Convert attachments to base64
+      const attachmentData = await Promise.all(
+        emailAttachments.map(async (file) => {
+          const content = await convertFileToBase64(file);
+          return {
+            name: file.name,
+            content: content
+          };
+        })
+      );
+
+      console.log('Sending email:', {
+        action: emailAction,
+        isEdited,
+        hasAttachments: attachmentData.length > 0,
+        to: selectedCandidate.candidate_email
+      });
+
+      // For selection emails without edits and no attachments, use the template endpoint
+      if (emailAction === 'selected' && !isEdited && attachmentData.length === 0) {
+        const response = await fetch('http://localhost:5000/api/email/selection', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            to: selectedCandidate.candidate_email,
+            candidateName: selectedCandidate.candidate_name,
+            jobTitle: selectedJob.title,
+            companyName: selectedJob.organization_name || 'NeuroHire AI',
+            applicationId: selectedCandidate._id,
+            frontendUrl: window.location.origin
+          })
+        });
+
+        const result = await response.json();
+        if (result.success) {
+          try {
+            await fetch(`${API}/applications/${selectedCandidate._id}/offer-send`, { method: 'PATCH' });
+            setApplications(prev => prev.map(a => a._id === selectedCandidate._id ? { ...a, application_status: "offer_sent" } : a));
+          } catch (e) {
+            console.error('Error updating status to offer_sent:', e);
+          }
+
+          toast({
+            title: "Offer Email Sent Successfully",
+            description: `Selection email with Accept/Reject buttons sent to ${selectedCandidate.candidate_email}`,
+          });
+          closeEmailModal();
+        } else {
+          throw new Error(result.error || result.message || 'Failed to send email');
+        }
+      } else {
+        // For edited content, attachments, or other email types - use custom endpoint
+        const htmlContent = textToHtml(emailContent);
+
+        console.log('Sending custom email with:');
+        console.log('  - HTML length:', htmlContent.length);
+        console.log('  - Text length:', emailContent.length);
+        console.log('  - Attachments:', attachmentData.length);
+
+        const response = await fetch('http://localhost:5000/api/email/custom', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            to: selectedCandidate.candidate_email,
+            subject: emailSubject,
+            html: htmlContent,
+            text: emailContent,
+            attachments: attachmentData
+          })
+        });
+
+        const result = await response.json();
+        if (result.success) {
+          if (emailAction === 'selected') {
+            try {
+              await fetch(`${API}/applications/${selectedCandidate._id}/offer-send`, { method: 'PATCH' });
+              setApplications(prev => prev.map(a => a._id === selectedCandidate._id ? { ...a, application_status: "offer_sent" } : a));
+            } catch (e) {
+              console.error('Error updating status to offer_sent:', e);
+            }
+          }
+
+          toast({
+            title: "Email Sent Successfully",
+            description: `Email has been sent to ${selectedCandidate.candidate_email}`,
+          });
+          closeEmailModal();
+        } else {
+          throw new Error(result.error || result.message || 'Failed to send email');
+        }
+      }
+    } catch (error: any) {
+      console.error('Error sending email:', error);
+      toast({
+        title: "Email Sending Failed",
+        description: error.message || "Failed to send email. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setSendingEmail(false);
+    }
+  };
 
   const sortedApps = [...applications].sort((a, b) => {
     const ta = totalScore(a, rounds);
@@ -347,6 +694,7 @@ const Reports = () => {
                             Total {sortDir === "desc" ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
                           </button>
                         </th>
+                        <th className="text-left py-3 px-3 text-xs text-muted-foreground uppercase tracking-wider">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -370,6 +718,31 @@ const Reports = () => {
                               );
                             })}
                             <td className="py-3 px-3 font-display font-semibold text-foreground">{tot}</td>
+                            <td className="py-3 px-3">
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => openEmailModal(app, 'selected')}
+                                  className="p-1.5 rounded hover:bg-green-500/20 text-green-500 transition-colors"
+                                  title="Send Selection Email"
+                                >
+                                  <CheckCircle className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => openEmailModal(app, 'wait')}
+                                  className="p-1.5 rounded hover:bg-yellow-500/20 text-yellow-500 transition-colors"
+                                  title="Send Waitlist Email"
+                                >
+                                  <Clock className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => openEmailModal(app, 'rejected')}
+                                  className="p-1.5 rounded hover:bg-red-500/20 text-red-500 transition-colors"
+                                  title="Send Rejection Email"
+                                >
+                                  <XCircle className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </td>
                           </tr>
                         );
                       })}
@@ -377,6 +750,116 @@ const Reports = () => {
                   </table>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Email Draft Modal ── */}
+      {emailModalOpen && selectedCandidate && selectedJob && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-card border border-border/50 rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-border/30">
+              <div className="flex items-center gap-3">
+                <Mail className="w-5 h-5 text-primary" />
+                <div>
+                  <h2 className="text-xl font-semibold text-foreground">
+                    {emailAction === 'selected' ? 'Selection Email' : emailAction === 'rejected' ? 'Rejection Email' : 'Waitlist Email'}
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    To: {selectedCandidate.candidate_email}
+                  </p>
+                </div>
+              </div>
+              <button onClick={closeEmailModal} className="p-2 rounded-lg bg-muted/20 hover:bg-muted/30 text-muted-foreground transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Email Form */}
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">Subject</label>
+                <input
+                  type="text"
+                  value={emailSubject}
+                  onChange={(e) => setEmailSubject(e.target.value)}
+                  className="w-full px-4 py-2 rounded-lg bg-muted/20 border border-border/30 focus:border-primary/50 focus:outline-none transition-colors"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">Message</label>
+                <textarea
+                  value={emailContent}
+                  onChange={(e) => setEmailContent(e.target.value)}
+                  rows={12}
+                  className="w-full px-4 py-2 rounded-lg bg-muted/20 border border-border/30 focus:border-primary/50 focus:outline-none transition-colors text-sm resize-none"
+                  placeholder="Write your message here..."
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">Attachments</label>
+                <div className="border-2 border-dashed border-border/30 rounded-lg p-6 text-center hover:border-primary/50 transition-colors">
+                  <input
+                    type="file"
+                    id="file-upload"
+                    multiple
+                    onChange={handleFileChange}
+                    className="hidden"
+                  />
+                  <label htmlFor="file-upload" className="cursor-pointer">
+                    <FileText className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground">
+                      Click to upload files (offer letter, joining letter, etc.)
+                    </p>
+                  </label>
+                  {emailAttachments.length > 0 && (
+                    <div className="mt-4 space-y-2">
+                      {emailAttachments.map((file, idx) => (
+                        <div key={idx} className="flex items-center justify-between text-sm bg-muted/20 px-3 py-2 rounded">
+                          <span className="text-foreground">{file.name}</span>
+                          <button
+                            onClick={() => setEmailAttachments(prev => prev.filter((_, i) => i !== idx))}
+                            className="text-red-500 hover:text-red-400"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-border/30">
+              <button
+                onClick={closeEmailModal}
+                className="px-4 py-2 rounded-lg bg-muted/20 hover:bg-muted/30 text-muted-foreground transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={sendEmail}
+                disabled={sendingEmail}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {sendingEmail ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current" />
+                    Sending...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" />
+                    Send Email
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>

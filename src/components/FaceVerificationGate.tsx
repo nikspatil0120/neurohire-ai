@@ -66,7 +66,11 @@ const FaceVerificationGate = ({ onVerified, onFailed }: FaceVerificationGateProp
     try {
       // Step 1: Get stored profile photo from backend
       const token = localStorage.getItem('authToken'); // Changed from 'token' to 'authToken'
-      const res = await fetch('http://localhost:8000/api/v1/users/profile/photo', {
+      const userEmail = localStorage.getItem('userEmail');
+      const photoUrl = userEmail
+        ? `http://localhost:8000/api/v1/users/profile/photo?email=${encodeURIComponent(userEmail)}`
+        : 'http://localhost:8000/api/v1/users/profile/photo';
+      const res = await fetch(photoUrl, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 

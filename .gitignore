@@ -53,3 +53,6 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+
+# Local uploads
+backend/storage/uploads/

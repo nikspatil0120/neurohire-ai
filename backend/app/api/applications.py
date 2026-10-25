@@ -52,6 +52,23 @@ class RoundScoreUpdate(BaseModel):
     max_score: Optional[float] = None
     notes: Optional[str] = ""
 
+class CustomEmailRequest(BaseModel):
+    to: str
+    subject: str
+    html_content: str
+    text_content: Optional[str] = None
+    attachments: Optional[List[dict]] = None  # Each attachment: { name: str, content: str (base64), type: str }
+class OfferResponseRequest(BaseModel):
+    action: str  # "accept" | "reject"
+    candidate_name: Optional[str] = ""
+    candidate_email: Optional[str] = ""
+    recruiter_id: Optional[str] = ""
+    recruiter_name: Optional[str] = ""
+    recruiter_email: Optional[str] = ""
+    company_name: Optional[str] = ""
+    job_title: Optional[str] = ""
+
+
 
 # ─────────────────────────────────────────────
 # Helpers
@@ -528,7 +545,9 @@ async def update_application_status(application_id: str, update: ApplicationStat
                     candidate_email,
                     candidate_name,
                     job_title,
-                    company_name
+                    company_name,
+                    application_id=str(updated.get("_id", "")),
+                    frontend_url="http://localhost:3000"
                 ))
                 logger.info(f"Selection email queued for {candidate_email}")
             elif update.application_status == "rejected":
@@ -539,6 +558,18 @@ async def update_application_status(application_id: str, update: ApplicationStat
                     company_name
                 ))
                 logger.info(f"Rejection email queued for {candidate_email}")
+            elif update.application_status in ("interview_pending", "interview_scheduled"):
+                slot_info = f"{updated.get('slot_date', '')} {updated.get('slot_start_time', '')}".strip() or "To be scheduled"
+                interview_link = f"http://localhost:3000/candidate/interview-arena?jobId={updated.get('job_id', '')}"
+                asyncio.create_task(email_service.send_interview_invitation(
+                    candidate_email,
+                    candidate_name,
+                    job_title,
+                    company_name,
+                    interview_date=slot_info,
+                    interview_link=interview_link
+                ))
+                logger.info(f"Interview invitation email queued for {candidate_email}")
         except Exception as email_error:
             logger.error(f"Failed to queue status update email: {email_error}")
             # Don't fail status update if email fails
@@ -777,4 +808,159 @@ async def check_application(candidate_id: str, job_id: str):
         raise
     except Exception as e:
         logger.error(f"check_application error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/send-custom-email")
+async def send_custom_email(email_request: CustomEmailRequest):
+    """Send custom email with optional attachments"""
+    try:
+        logger.info(f"📧 Python API - send_custom_email endpoint called:")
+        logger.info(f"  - to: {email_request.to}")
+        logger.info(f"  - subject: {email_request.subject}")
+        logger.info(f"  - html_content length: {len(email_request.html_content) if email_request.html_content else 0}")
+        logger.info(f"  - text_content length: {len(email_request.text_content) if email_request.text_content else 0}")
+        logger.info(f"  - html_content preview: {email_request.html_content[:200] if email_request.html_content else 'No HTML'}")
+        
+        from app.services.email_service import email_service
+        
+        success = await email_service.send_custom_email(
+            to=email_request.to,
+            subject=email_request.subject,
+            html_content=email_request.html_content,
+            text_content=email_request.text_content,
+            attachments=email_request.attachments
+        )
+        
+        if success:
+            return {"success": True, "message": "Email sent successfully"}
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to send email"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"send_custom_email error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/{application_id}/offer-response")
+async def handle_offer_response(application_id: str, data: OfferResponseRequest):
+    """Handle candidate's Accept/Reject of offer letter email.
+    - accept -> application_status = offer_accepted, creates enabled conversation
+    - reject -> application_status = offer_rejected
+    """
+    try:
+        mongodb = get_mongo_db()
+        if mongodb is None:
+            raise HTTPException(status_code=503, detail="Database not available")
+
+        if data.action not in ("accept", "reject"):
+            raise HTTPException(status_code=400, detail="action must be 'accept' or 'reject'")
+
+        try:
+            app_oid = ObjectId(application_id)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid application_id")
+
+        new_status = "offer_accepted" if data.action == "accept" else "offer_rejected"
+        now = datetime.utcnow().isoformat()
+
+        result = await mongodb["applications"].update_one(
+            {"_id": app_oid},
+            {"$set": {"application_status": new_status, "updated_at": now}}
+        )
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Application not found")
+
+        conversation_id = None
+
+        if data.action == "accept":
+            # Fetch the application to get candidate/recruiter info if not provided
+            app_doc = await mongodb["applications"].find_one({"_id": app_oid})
+            candidate_email = data.candidate_email or app_doc.get("candidate_email", "")
+            candidate_name = data.candidate_name or app_doc.get("candidate_name", "")
+            recruiter_email = data.recruiter_email or app_doc.get("recruiter_email", "")
+            recruiter_name = data.recruiter_name or app_doc.get("recruiter_name", "")
+            company_name = data.company_name or app_doc.get("organization_name", "")
+
+            # Create or enable conversation
+            participant_ids = sorted([candidate_email, recruiter_email])
+            conv_key = f"{participant_ids[0]}_{participant_ids[1]}"
+
+            existing_conv = await mongodb["conversations"].find_one({"_id": conv_key})
+            if existing_conv:
+                await mongodb["conversations"].update_one(
+                    {"_id": conv_key},
+                    {"$set": {"enabled": True, "updated_at": now}}
+                )
+                conversation_id = conv_key
+            else:
+                conv_doc = {
+                    "_id": conv_key,
+                    "candidate_id": candidate_email,
+                    "candidate_name": candidate_name,
+                    "candidate_email": candidate_email,
+                    "recruiter_id": recruiter_email,
+                    "recruiter_name": recruiter_name,
+                    "recruiter_email": recruiter_email,
+                    "company_name": company_name,
+                    "last_message": "",
+                    "last_message_time": now,
+                    "unread_count": 0,
+                    "enabled": True,
+                    "application_id": application_id,
+                    "created_at": now,
+                    "updated_at": now
+                }
+                await mongodb["conversations"].insert_one(conv_doc)
+                conversation_id = conv_key
+
+            logger.info(f"Offer accepted: app={application_id}, conv={conversation_id}")
+
+        return {
+            "success": True,
+            "action": data.action,
+            "application_status": new_status,
+            "conversation_id": conversation_id,
+            "message": "Offer accepted! Messaging is now enabled." if data.action == "accept" else "Offer declined. Thank you for your response."
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"handle_offer_response error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/{application_id}/offer-send")
+async def mark_offer_sent(application_id: str):
+    """Mark application status as offer_sent (called when recruiter sends selection email)."""
+    try:
+        mongodb = get_mongo_db()
+        if mongodb is None:
+            raise HTTPException(status_code=503, detail="Database not available")
+
+        try:
+            app_oid = ObjectId(application_id)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid application_id")
+
+        now = datetime.utcnow().isoformat()
+        result = await mongodb["applications"].update_one(
+            {"_id": app_oid},
+            {"$set": {"application_status": "offer_sent", "updated_at": now}}
+        )
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Application not found")
+
+        return {"success": True, "application_status": "offer_sent"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"mark_offer_sent error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

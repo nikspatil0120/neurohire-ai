@@ -24,6 +24,8 @@ import InterviewRoom from "./pages/candidate/InterviewRoom";
 import Interviews from "./pages/candidate/Interviews";
 import Report from "./pages/candidate/Report";
 import IncomingOpportunities from "./pages/candidate/IncomingOpportunities";
+import CandidateMessaging from "./pages/candidate/Messaging";
+import OfferResponse from "./pages/candidate/OfferResponse";
 
 // Recruiter
 import RecruiterDashboard from "./pages/recruiter/Dashboard";
@@ -45,6 +47,7 @@ import Recruiters from "./pages/admin/Recruiters";
 import Candidates from "./pages/admin/Candidates";
 import IncomingJobs from "./pages/admin/IncomingJobs";
 import AdminApplications from "./pages/admin/Applications";
+import AdminMessaging from "./pages/admin/Messaging";
 
 const queryClient = new QueryClient();
 
@@ -73,6 +76,8 @@ const App = () => (
                 <Route path="/candidate/interviews" element={<Interviews />} />
                 <Route path="/candidate/reports" element={<Report />} />
                 <Route path="/candidate/incoming-opportunities" element={<IncomingOpportunities />} />
+                <Route path="/candidate/messages" element={<CandidateMessaging />} />
+                <Route path="/candidate/offer-response" element={<OfferResponse />} />
 
                 {/* Recruiter */}
                 <Route path="/recruiter/dashboard" element={<RecruiterDashboard />} />
@@ -94,6 +99,7 @@ const App = () => (
                 <Route path="/admin/aptitude-questions" element={<AptitudeQuestions />} />
                 <Route path="/admin/incoming-jobs" element={<IncomingJobs />} />
                 <Route path="/admin/applications" element={<AdminApplications />} />
+                <Route path="/admin/messages" element={<AdminMessaging />} />
 
                 <Route path="*" element={<NotFound />} />
               </Routes>

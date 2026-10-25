@@ -2,21 +2,24 @@ import { useState, useEffect } from "react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import GlassCard from "@/components/GlassCard";
 import ProfilePhotoCapture from "@/components/ProfilePhotoCapture";
-import { LayoutDashboard, Target, Building2, FileText, User, LogOut, Save, Eye, X, Plus, Camera, CheckCircle, Briefcase } from "lucide-react";
+import { LayoutDashboard, Target, Building2, FileText, User, LogOut, Save, Eye, X, Plus, Camera, CheckCircle, Briefcase, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useProfile } from "@/contexts/ProfileContext";
+import { useAuth } from "@/contexts/AuthContext";
 
 const navItems = [
   { label: "Dashboard", href: "/candidate/dashboard", icon: LayoutDashboard },
   { label: "Practice", href: "/candidate/practice", icon: Target },
   { label: "Company Interviews", href: "/candidate/interviews", icon: Building2 },
   { label: "Incoming Opportunities", href: "/candidate/incoming-opportunities", icon: Briefcase },
+  { label: "Messages", href: "/candidate/messages", icon: MessageCircle },
   { label: "Reports", href: "/candidate/reports", icon: FileText },
   { label: "Profile", href: "/candidate/profile", icon: User },
   { label: "Logout", href: "/login", icon: LogOut },
 ];
 
 const CandidateProfile = () => {
+  const { user } = useAuth();
   const { profileData, profileCompletion, updateProfile, setProfileData } = useProfile();
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [formErrors, setFormErrors] = useState<string[]>([]);
@@ -189,16 +192,15 @@ const CandidateProfile = () => {
     
     // Load profile photo
     loadProfilePhoto();
-  }, []);
+  }, [user]);
 
   const loadProfilePhoto = async () => {
     try {
       const token = localStorage.getItem('authToken');
-      const userEmail = localStorage.getItem('userEmail') || profileData.email || 'sahilghogaressg06@gmail.com';
+      const userEmail = user?.email || profileData.email || localStorage.getItem('userEmail');
       
-      if (!token) {
-        console.log('No auth token found - user not logged in');
-        // If no token, camera will show by default
+      if (!token || !userEmail) {
+        console.log('No auth token or user email found - user not logged in');
         return;
       }
       
@@ -323,7 +325,7 @@ const CandidateProfile = () => {
                     ⚠️ Profile photo is required. Please capture and save your photo to continue.
                   </p>
                 </div>
-                <ProfilePhotoCapture onPhotoSaved={handlePhotoSaved} />
+                <ProfilePhotoCapture onPhotoSaved={handlePhotoSaved} email={user?.email || profileData.email || localStorage.getItem('userEmail') || undefined} />
               </div>
             )}
           </GlassCard>

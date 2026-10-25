@@ -5,7 +5,7 @@ import GlassCard from "@/components/GlassCard";
 import {
   LayoutDashboard, Target, Building2, FileText, User, LogOut,
   Brain, Code, Calculator, ArrowRight, Briefcase,
-  X, ChevronRight, Plus, Trash2,
+  X, ChevronRight, Plus, Trash2, MessageCircle,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import TestInstructionsModal from "@/components/TestInstructionsModal";
@@ -18,6 +18,7 @@ const navItems = [
   { label: "Practice",               href: "/candidate/practice",               icon: Target },
   { label: "Company Interviews",     href: "/candidate/interviews",             icon: Building2 },
   { label: "Incoming Opportunities", href: "/candidate/incoming-opportunities", icon: Briefcase },
+  { label: "Messages",              href: "/candidate/messages",              icon: MessageCircle },
   { label: "Reports",                href: "/candidate/reports",                icon: FileText },
   { label: "Profile",                href: "/candidate/profile",                icon: User },
   { label: "Logout",                 href: "/login",                            icon: LogOut },

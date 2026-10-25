@@ -5,6 +5,7 @@ import { generateToken, authenticateToken } from '../middleware/auth.js';
 import upload from '../middleware/upload.js';
 import path from 'path';
 import fs from 'fs';
+import { sendWelcomeEmail } from '../services/emailService.js';
 
 const router = express.Router();
 
@@ -74,6 +75,11 @@ router.post('/register', validateRegistration, handleValidationErrors, async (re
     });
 
     await user.save();
+
+    // Send welcome email asynchronously
+    sendWelcomeEmail(user.email, user.name).catch(err => {
+      console.warn('⚠️ Could not send welcome email on registration:', err.message);
+    });
 
     // Generate token
     const token = generateToken(user._id);
@@ -203,6 +209,10 @@ router.post('/google', async (req, res) => {
         emailVerified: true // Google users are pre-verified
       });
       await user.save();
+      // Send welcome email for new Google signup
+      sendWelcomeEmail(user.email, user.name).catch(err => {
+        console.warn('⚠️ Could not send welcome email on Google signup:', err.message);
+      });
     }
 
     // Generate token

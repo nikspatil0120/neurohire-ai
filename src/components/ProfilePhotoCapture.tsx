@@ -1,12 +1,15 @@
 import { useRef, useState, useEffect } from 'react';
 import * as faceapi from 'face-api.js';
 import { Camera, CheckCircle, RefreshCw, Loader } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface ProfilePhotoCaptureProps {
   onPhotoSaved: (photo: string) => void;
+  email?: string;
 }
 
-const ProfilePhotoCapture = ({ onPhotoSaved }: ProfilePhotoCaptureProps) => {
+const ProfilePhotoCapture = ({ onPhotoSaved, email }: ProfilePhotoCaptureProps) => {
+  const { user } = useAuth();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -188,7 +191,12 @@ const ProfilePhotoCapture = ({ onPhotoSaved }: ProfilePhotoCaptureProps) => {
     setIsSaving(true);
     try {
       const token = localStorage.getItem('authToken');
-      const userEmail = localStorage.getItem('userEmail') || 'sahilghogaressg06@gmail.com'; // Fallback for development
+      const userEmail = email || user?.email || localStorage.getItem('userEmail');
+      if (!userEmail) {
+        setError('User email not found. Please log in again.');
+        setIsSaving(false);
+        return;
+      }
       console.log('[ProfilePhotoCapture] ===== SAVE PHOTO START =====');
       console.log('[ProfilePhotoCapture] Token found:', token ? 'Yes' : 'No');
       console.log('[ProfilePhotoCapture] Token value:', token);
