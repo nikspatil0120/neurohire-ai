@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import GlassCard from "@/components/GlassCard";
 import WaveformAnimation from "@/components/WaveformAnimation";
 import { CandidateCamera } from "@/components/CandidateCamera";
+import { InterviewerAvatar } from "@/components/InterviewerAvatar";
 import {
   Brain, Camera, Clock, AlertTriangle, Mic, BarChart3,
   TrendingUp, X, Volume2, ArrowLeft, RefreshCw, CheckCircle2,
@@ -776,66 +777,42 @@ const InterviewRoom = () => {
       {/* ── Main grid ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
 
-        {/* AI avatar + question - LEFT */}
-        <GlassCard variant="neon" hover={false} className="flex flex-col items-center justify-center relative scan-line p-6 gap-4 min-h-[360px]">
-          {/* Orb */}
-          <div className="relative">
-            <div
-              className={`w-24 h-24 rounded-full bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center transition-all duration-300 ${
-                aiMode === "speaking" ? "pulse-glow scale-105" : ""
-              }`}
-            >
-              <Brain className={`w-12 h-12 transition-colors ${aiMode === "speaking" ? "text-primary" : "text-muted-foreground"}`} />
-            </div>
-            {aiMode === "speaking" && (
-              <span className="absolute inset-0 rounded-full border border-primary/40 animate-ping" />
-            )}
-          </div>
+        {/* AI interviewer avatar + question - LEFT */}
+        <div className="flex flex-col gap-4">
+          <GlassCard variant="neon" hover={false} className="flex-1 overflow-hidden p-0 relative min-h-[260px] max-h-[380px]">
+            <InterviewerAvatar mode={aiMode} questionText={currentQuestion} />
+          </GlassCard>
 
-          {/* Mode label */}
-          <div className="flex items-center gap-2">
-            {aiMode === "speaking" && (
-              <>
-                <Volume2 className="w-4 h-4 text-primary animate-pulse" />
-                <span className="text-xs text-primary font-medium">Interviewer Speaking…</span>
-              </>
-            )}
-            {aiMode === "listening" && (
-              <>
-                <Mic className="w-4 h-4 text-green-400 animate-pulse" />
-                <span className="text-xs text-green-400 font-medium">Listening — speak your answer</span>
-              </>
-            )}
-            {aiMode === "processing" && (
-              <>
-                <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                <span className="text-xs text-muted-foreground font-medium">Evaluating response…</span>
-              </>
-            )}
-            {aiMode === "idle" && (
-              <span className="text-xs text-muted-foreground">Ready</span>
-            )}
-          </div>
-
-          {/* Question text */}
-          {currentQuestion && (
-            <div className="w-full p-4 rounded-xl bg-primary/5 border border-primary/20 mt-2">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-[10px] uppercase tracking-wider text-primary font-semibold">{currentCategory}</span>
-                {currentTopic && <span className="text-[10px] text-muted-foreground">· {currentTopic}</span>}
+          {/* Question text box */}
+          <GlassCard variant="neon" hover={false} className="p-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] uppercase tracking-wider text-primary font-semibold px-2 py-0.5 rounded bg-primary/10 border border-primary/20">
+                  {currentCategory || "Technical Assessment"}
+                </span>
+                {currentTopic && <span className="text-[11px] text-muted-foreground">· {currentTopic}</span>}
               </div>
-              <p className="text-sm text-foreground leading-relaxed font-medium">{currentQuestion}</p>
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                {aiMode === "speaking" && (
+                  <span className="text-primary font-medium flex items-center gap-1">
+                    <Volume2 className="w-3.5 h-3.5 animate-pulse" /> Asking question
+                  </span>
+                )}
+                {aiMode === "listening" && (
+                  <span className="text-emerald-400 font-medium flex items-center gap-1">
+                    <Mic className="w-3.5 h-3.5 animate-pulse" /> Your turn to speak
+                  </span>
+                )}
+                {aiMode === "processing" && (
+                  <span className="text-amber-400 font-medium">Processing response...</span>
+                )}
+              </div>
             </div>
-          )}
-
-          {/* Waveform when speaking */}
-          {aiMode === "speaking" && (
-            <div className="absolute bottom-4 left-4 flex items-center gap-2">
-              <Mic className="w-4 h-4 text-primary" />
-              <WaveformAnimation bars={12} className="h-6" />
-            </div>
-          )}
-        </GlassCard>
+            <p className="text-sm min-h-[56px] text-foreground leading-relaxed font-medium">
+              {currentQuestion || "Preparing your tailored interview question..."}
+            </p>
+          </GlassCard>
+        </div>
 
         {/* Candidate camera + live transcript - RIGHT */}
         <div className="flex flex-col gap-4">
