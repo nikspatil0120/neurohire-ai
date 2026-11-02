@@ -51,12 +51,10 @@ export type FaceLandmarkData = {
 export const PROHIBITED_CLASSES: Record<string, string> = {
   "cell phone": "Mobile phone",
   "phone": "Mobile phone",
-  "mouse": "Computer mouse",
-  "remote": "Remote / phone device",
+  "remote": "Remote / secondary device",
   "laptop": "Secondary screen",
   "book": "Book / notes",
-  "tv": "Monitor / screen",
-  "keyboard": "Keyboard",
+  "tv": "Monitor / secondary screen",
 };
 
 export type DetectedProhibitedObject = {
@@ -351,7 +349,7 @@ export function useFaceAnalysis(
               workerRef.current &&
               workerReadyRef.current &&
               !workerBusyRef.current &&
-              (now - lastObjectTickRef.current >= 300)
+              (now - lastObjectTickRef.current >= 240)
             ) {
               lastObjectTickRef.current = now;
               workerBusyRef.current = true;
@@ -425,6 +423,12 @@ export function useFaceAnalysis(
     try {
       worker = new DetectorWorker();
       workerRef.current = worker;
+
+      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      worker.postMessage({
+        type: 'INIT',
+        modelUrl: origin ? origin + '/models/coco-ssd/model.json' : undefined,
+      });
 
       worker.onmessage = (e: MessageEvent) => {
         if (cancelled) return;

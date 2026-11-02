@@ -12,7 +12,7 @@ import {
   Brain, Camera, Clock, AlertTriangle, Mic, MicOff, BarChart3,
   TrendingUp, X, Volume2, ArrowLeft, RefreshCw, CheckCircle2, Send, ShieldOff,
   Shield, ShieldAlert, AlertOctagon, UserCheck, Sparkles,
-  Lock, Unlock, Maximize2, Minimize2,
+  Lock, Unlock, Maximize2, Minimize2, Smartphone,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
@@ -451,6 +451,13 @@ const InterviewRoom = () => {
   const [outOfFrameCountdown,       setOutOfFrameCountdown]       = useState<number | null>(null);
   const [securityTerminated,        setSecurityTerminated]        = useState(false);
   const [securityTerminationReason, setSecurityTerminationReason] = useState("");
+
+  // ── Prohibited Object Tracking State (3 Strikes Auto-Termination) ─────────
+  const [objectViolationsCount,     setObjectViolationsCount]     = useState(0);
+  const [activeProhibitedObject,    setActiveProhibitedObject]    = useState<string | null>(null);
+  const objectViolationsRef         = useRef(0);
+  const objectConsecutiveTicksRef   = useRef(0);
+  const isObjectHaltedRef           = useRef(false);
 
   // ── Window Lockdown & Anti-Cheat State (Dev Mode Unlockable) ───────────────
   const [isWindowLocked,            setIsWindowLocked]            = useState(true);
@@ -1206,6 +1213,71 @@ const InterviewRoom = () => {
     };
   }, [isVerified, terminated, isFinished, handleSecurityTermination]);
 
+  // ── Prohibited Object Security Monitoring Loop (3 Strikes Auto-Termination) ─
+  useEffect(() => {
+    if (!isVerified || terminated || isFinished) return;
+
+    const hasProhibitedObject = proctoring.activeViolations.has("prohibited_object");
+    const objectDetail = proctoring.activeViolationDetails.prohibited_object || "Mobile phone";
+
+    if (hasProhibitedObject) {
+      objectConsecutiveTicksRef.current += 1;
+
+      // Require 2 consecutive detection ticks (~500ms) to ensure confirmed presence
+      if (objectConsecutiveTicksRef.current >= 2) {
+        if (!isObjectHaltedRef.current) {
+          isObjectHaltedRef.current = true;
+          objectViolationsRef.current += 1;
+          setObjectViolationsCount(objectViolationsRef.current);
+          setActiveProhibitedObject(objectDetail);
+
+          // Stop speech synthesis if AI was speaking
+          if ("speechSynthesis" in window) {
+            try { window.speechSynthesis.cancel(); } catch { /* ignore */ }
+          }
+
+          console.warn(`[Proctoring] ⚠️ Prohibited device detected: ${objectDetail} (Strike ${objectViolationsRef.current}/3)`);
+
+          // 3rd violation triggers automatic termination
+          if (objectViolationsRef.current >= 3) {
+            console.error("[Proctoring] Prohibited device detected 3 times. Terminating interview immediately.");
+            handleSecurityTermination(
+              `Interview terminated automatically: A prohibited device (${objectDetail}) was detected 3 times during the proctored interview (exceeded maximum 2 allowed infractions).`
+            );
+            return;
+          }
+
+          // Halt interview temporarily and display active warning modal
+          isSecurityHaltedRef.current = true;
+          setIsSecurityHalted(true);
+          setSecurityHaltReason(`Prohibited device detected: ${objectDetail}. Please remove it from the camera frame immediately.`);
+        }
+      }
+    } else {
+      // Object removed from camera view
+      objectConsecutiveTicksRef.current = 0;
+      if (isObjectHaltedRef.current) {
+        console.log("[Proctoring] Prohibited device removed from camera frame! Resuming interview.");
+        isObjectHaltedRef.current = false;
+        setActiveProhibitedObject(null);
+
+        // Resume interview if no other security halt is active
+        if (outOfFrameStartTimeRef.current === null && faceViolationsRef.current <= 2) {
+          isSecurityHaltedRef.current = false;
+          setIsSecurityHalted(false);
+          setSecurityHaltReason("");
+        }
+      }
+    }
+  }, [
+    proctoring.activeViolations,
+    proctoring.activeViolationDetails,
+    isVerified,
+    terminated,
+    isFinished,
+    handleSecurityTermination,
+  ]);
+
   // ── Timer (Paused while security halted) ───────────────────────────────────
   useEffect(() => {
     if (isFinished || terminated || questions.length === 0 || isSecurityHalted) return;
@@ -1659,6 +1731,24 @@ const InterviewRoom = () => {
             const isLockdownViolation = reason.includes("full-screen") || reason.includes("tabs") || reason.includes("switched");
             const isOutOfCameraViolation = reason.includes("out of camera");
             const isFaceViolation = reason.includes("unauthorized face") || reason.includes("multiple faces") || faceViolationsCount > 0;
+            const isObjectViolation = reason.includes("prohibited device") || reason.includes("mobile phone") || objectViolationsCount > 0;
+
+            if (isObjectViolation) {
+              return (
+                <div className="mb-6 p-4 rounded-xl bg-destructive/10 border border-destructive/30 text-xs text-destructive text-left space-y-2">
+                  <div className="font-semibold flex items-center gap-1.5 text-sm">
+                    <Smartphone className="w-4 h-4 text-destructive" /> Prohibited Device Policy Violation (3 Strikes)
+                  </div>
+                  <p>
+                    A prohibited device (mobile phone or secondary device) was detected <strong>{objectViolationsCount || 3} times</strong> during this session.
+                    Per examination integrity policy, 3 prohibited device infractions result in automatic termination.
+                  </p>
+                  <div className="text-[11px] text-muted-foreground pt-1 border-t border-destructive/20">
+                    Timestamp: {new Date().toLocaleTimeString()} · Prohibited Object Detection Enforced
+                  </div>
+                </div>
+              );
+            }
 
             if (isLockdownViolation) {
               return (
@@ -2000,6 +2090,14 @@ const InterviewRoom = () => {
               <span className="text-xs text-amber-400">Follow-up {followupCount}/{MAX_FOLLOWUPS}</span>
             </div>
           )}
+          {/* Prohibited Device warning badge if infractions > 0 */}
+          {objectViolationsCount > 0 && (
+            <div className="glass-panel px-3 py-1.5 flex items-center gap-1.5 border-rose-500/40 text-rose-400">
+              <Smartphone className="w-3.5 h-3.5 text-rose-400" />
+              <span className="text-xs font-semibold tracking-wider font-mono">DEVICE WARNING {objectViolationsCount}/3</span>
+            </div>
+          )}
+
           {/* Window Lockdown status badge */}
           <div className={`glass-panel px-3 py-1.5 flex items-center gap-1.5 ${isWindowLocked ? "border-emerald-500/40 text-emerald-400" : "border-amber-500/40 text-amber-400"}`}>
             {isWindowLocked ? (
@@ -2216,11 +2314,50 @@ const InterviewRoom = () => {
         signals={signals}
       />
 
-      {/* ── SECURITY HALT OVERLAY (When other/unauthorized face detected OR candidate leaves frame) ── */}
+      {/* ── SECURITY HALT OVERLAY (When prohibited device, other face, or out of frame) ── */}
       {isSecurityHalted && (
         <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="max-w-md w-full bg-card border-2 border-amber-500/50 rounded-2xl p-6 text-center space-y-5 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
-            {outOfFrameCountdown !== null ? (
+          <div className="max-w-md w-full bg-card border-2 border-rose-500/60 rounded-2xl p-6 text-center space-y-5 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            {activeProhibitedObject ? (
+              /* Prohibited Device Warning Mode */
+              <>
+                <div className="relative w-20 h-20 mx-auto flex items-center justify-center">
+                  <div className="absolute inset-0 rounded-full border-4 border-rose-500/30 animate-ping" />
+                  <div className="w-16 h-16 rounded-full bg-rose-500/15 border-2 border-rose-500 flex items-center justify-center shadow-[0_0_25px_rgba(244,63,94,0.5)]">
+                    <Smartphone className="w-8 h-8 text-rose-400 animate-bounce" />
+                  </div>
+                </div>
+
+                <div>
+                  <span className="inline-block px-3 py-1 rounded-full text-[11px] font-bold tracking-wider uppercase bg-rose-500/15 border border-rose-500/40 text-rose-400 mb-2">
+                    PROHIBITED DEVICE DETECTED · WARNING {objectViolationsCount} / 3
+                  </span>
+                  <h2 className="text-xl font-bold text-foreground">
+                    Remove {activeProhibitedObject} Immediately
+                  </h2>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    A prohibited device (<strong className="text-rose-400">{activeProhibitedObject}</strong>) was detected in your camera frame. Please remove it out of camera view to resume the interview.
+                  </p>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/25 text-xs text-left space-y-2">
+                  <div className="flex items-center justify-between font-semibold text-rose-300">
+                    <span>Infraction Warning</span>
+                    <span className="font-mono text-xs px-2.5 py-0.5 rounded bg-rose-500/20 border border-rose-500/40 font-bold text-rose-300">
+                      {objectViolationsCount} / 3 Strikes
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-rose-200/90 leading-relaxed">
+                    ⚠️ <strong>Security Rule:</strong> Mobile phones and unauthorized secondary devices are strictly forbidden. If a prohibited device is detected <strong>3 times</strong>, the interview will be automatically terminated.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-center gap-2 text-xs text-rose-400 font-medium animate-pulse pt-1">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Waiting for device to be removed from camera view...</span>
+                </div>
+              </>
+            ) : outOfFrameCountdown !== null ? (
               /* Out of Frame 5-second countdown mode */
               <>
                 <div className="relative w-24 h-24 mx-auto flex items-center justify-center">
