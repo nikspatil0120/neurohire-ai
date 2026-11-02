@@ -149,3 +149,19 @@ All API responses follow this format:
 - Helmet security headers
 - Input validation and sanitization
 - MongoDB injection protection
+
+
+
+project run commands
+
+Terminal-1: cd neurohire-ai
+            cd server
+            npm run dev
+
+
+Terminal-2: cd neurohire-ai 
+            cd backend
+            python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+Terminal-3: cd neurohire-ai
+            npm run dev
