@@ -81,6 +81,7 @@ export type FaceAnalysisState = {
   videoRef: React.RefObject<HTMLVideoElement>;
   canvasRef: React.RefObject<HTMLCanvasElement>; // for debug overlay
   lastFrame: FrameSignal | null;
+  stopEverything: () => void;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -225,10 +226,19 @@ export function useFaceAnalysis(
   const stopEverything = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current.getTracks().forEach(t => {
+        try { t.stop(); } catch { /* ignore */ }
+      });
       streamRef.current = null;
     }
-    if (videoRef.current) videoRef.current.srcObject = null;
+    if (videoRef.current) {
+      try {
+        const s = videoRef.current.srcObject as MediaStream | null;
+        if (s) s.getTracks().forEach(t => { try { t.stop(); } catch { /* ignore */ } });
+      } catch { /* ignore */ }
+      videoRef.current.srcObject = null;
+    }
+    setReady(false);
   }, []);
 
   useEffect(() => {
@@ -457,5 +467,5 @@ export function useFaceAnalysis(
     };
   }, [enabled, stopEverything]);
 
-  return { ready, error, videoRef, canvasRef, lastFrame };
+  return { ready, error, videoRef, canvasRef, lastFrame, stopEverything };
 }

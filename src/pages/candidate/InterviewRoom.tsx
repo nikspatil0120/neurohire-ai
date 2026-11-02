@@ -482,8 +482,10 @@ const InterviewRoom = () => {
       proctoringRef.current.pushFrame(frame);
       signalsRef.current.pushFrame(frame);
     }, []),
-    isVerified,
+    isVerified && !terminated && !isFinished,
   );
+  const faceAnalysisRef = useRef(faceAnalysis);
+  useEffect(() => { faceAnalysisRef.current = faceAnalysis; }, [faceAnalysis]);
 
   // Camera-denied modal: shown as a blocking overlay when camera is required
   // but access was denied. Interview is NOT silently continued without camera.
@@ -677,6 +679,28 @@ const InterviewRoom = () => {
     }
   }, [exitFullscreenAndUnlock, enterFullscreenAndLock]);
 
+  // Helper to completely release camera & mic hardware tracks
+  const stopMediaHardware = useCallback(() => {
+    try {
+      faceAnalysisRef.current?.stopEverything();
+    } catch { /* ignore */ }
+
+    if (faceAnalysisRef.current?.videoRef?.current?.srcObject) {
+      try {
+        const stream = faceAnalysisRef.current.videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach(t => { try { t.stop(); } catch { /* ignore */ } });
+        faceAnalysisRef.current.videoRef.current.srcObject = null;
+      } catch { /* ignore */ }
+    }
+
+    if (mediaStreamRef.current) {
+      try {
+        mediaStreamRef.current.getTracks().forEach(t => { try { t.stop(); } catch { /* ignore */ } });
+        mediaStreamRef.current = null;
+      } catch { /* ignore */ }
+    }
+  }, []);
+
   // ── Terminate Interview Handler ───────────────────────────────────────────
   const handleTerminate = useCallback(() => {
     terminatedRef.current = true;
@@ -717,6 +741,7 @@ const InterviewRoom = () => {
       try { audioContextRef.current.close().catch(() => {}); } catch { /* ignore */ }
     }
 
+    stopMediaHardware();
     setAiMode("idle");
     setTerminated(true);
   }, []);
@@ -750,6 +775,7 @@ const InterviewRoom = () => {
       if (audioContextRef.current && audioContextRef.current.state !== "closed") {
         try { audioContextRef.current.close().catch(() => {}); } catch { /* ignore */ }
       }
+      stopMediaHardware();
     };
   }, []);
 
@@ -1451,6 +1477,7 @@ const InterviewRoom = () => {
     if (!terminatedRef.current) {
       setIsFinished(true);
       runningRef.current = false;
+      stopMediaHardware();
       exitFullscreenAndUnlock();
       setIsWindowLocked(false);
       isWindowLockedRef.current = false;
@@ -1617,12 +1644,14 @@ const InterviewRoom = () => {
           <div className="flex gap-3 justify-center">
             <Link
               to="/candidate/practice"
+              onClick={stopMediaHardware}
               className="px-6 py-2.5 rounded-lg border border-border/50 text-foreground text-sm hover:bg-muted/30 transition-all cursor-pointer"
             >
               Practice Mode
             </Link>
             <Link
               to="/candidate/dashboard"
+              onClick={stopMediaHardware}
               className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 transition-all cursor-pointer shadow-lg shadow-primary/20"
             >
               Return to Dashboard
