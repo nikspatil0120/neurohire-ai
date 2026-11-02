@@ -480,6 +480,7 @@ const InterviewRoom = () => {
   const currentExchangesRef         = useRef<Exchange[]>([]);
   const runningRef                  = useRef(false);
   const terminatedRef               = useRef(false);
+  const isFinishedRef               = useRef(false);
   const activeRecognitionRef        = useRef<any>(null);
   const manualAnswerRef             = useRef("");
   const submitCurrentAnswerRef      = useRef<(() => void) | null>(null);
@@ -501,8 +502,12 @@ const InterviewRoom = () => {
     isSecurityHaltedRef.current = isSecurityHalted;
   }, [isSecurityHalted]);
 
-  // Helper function to check termination across all async operations
-  const isTerminated = useCallback(() => terminatedRef.current, []);
+  useEffect(() => {
+    isFinishedRef.current = isFinished;
+  }, [isFinished]);
+
+  // Helper function to check termination or completion across all async operations
+  const isTerminated = useCallback(() => terminatedRef.current || isFinishedRef.current, []);
 
   // ── Face analysis + proctoring + candidate signals ────────────────────────
   const proctoring = useProctoringMonitor();
@@ -747,6 +752,34 @@ const InterviewRoom = () => {
     }
   }, []);
 
+  // Comprehensive cleanup when exiting the interview room via any navigation link
+  const handleExitRoom = useCallback(() => {
+    terminatedRef.current = true;
+    isFinishedRef.current = true;
+    runningRef.current = false;
+    stopMediaHardware();
+    if ("speechSynthesis" in window) {
+      try { window.speechSynthesis.cancel(); } catch { /* ignore */ }
+    }
+    if (activeRecognitionRef.current) {
+      try {
+        activeRecognitionRef.current.onend = null;
+        activeRecognitionRef.current.onerror = null;
+        activeRecognitionRef.current.onresult = null;
+        activeRecognitionRef.current.abort();
+      } catch { /* ignore */ }
+      activeRecognitionRef.current = null;
+    }
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+    if (audioContextRef.current && audioContextRef.current.state !== "closed") {
+      try { audioContextRef.current.close().catch(() => {}); } catch { /* ignore */ }
+      audioContextRef.current = null;
+    }
+  }, [stopMediaHardware]);
+
   // ── Terminate Interview Handler ───────────────────────────────────────────
   const handleTerminate = useCallback(() => {
     terminatedRef.current = true;
@@ -790,7 +823,7 @@ const InterviewRoom = () => {
     stopMediaHardware();
     setAiMode("idle");
     setTerminated(true);
-  }, []);
+  }, [stopMediaHardware]);
 
   // ── Automatic Security Termination Handler ────────────────────────────────
   const handleSecurityTermination = useCallback((reason: string) => {
@@ -804,6 +837,7 @@ const InterviewRoom = () => {
   useEffect(() => {
     return () => {
       terminatedRef.current = true;
+      isFinishedRef.current = true;
       runningRef.current = false;
       if ("speechSynthesis" in window) {
         try { window.speechSynthesis.cancel(); } catch { /* ignore */ }
@@ -823,7 +857,7 @@ const InterviewRoom = () => {
       }
       stopMediaHardware();
     };
-  }, []);
+  }, [stopMediaHardware]);
 
   // ── Window Lockdown & Anti-Cheat Enforcement Loop (5s Auto-Termination) ──────
   useEffect(() => {
@@ -1236,7 +1270,7 @@ const InterviewRoom = () => {
 
   // ── Main interview orchestration ──────────────────────────────────────────
   const runInterview = useCallback(async (qs: Question[]) => {
-    if (runningRef.current || qs.length === 0 || terminatedRef.current) return;
+    if (runningRef.current || isFinishedRef.current || terminatedRef.current || qs.length === 0) return;
     runningRef.current = true;
 
     for (let qi = 0; qi < qs.length; qi++) {
@@ -1535,14 +1569,21 @@ const InterviewRoom = () => {
 
   // Start when questions are ready AND identity has been verified
   useEffect(() => {
-    if (isVerified && questions.length > 0 && !runningRef.current && !terminatedRef.current) {
+    if (
+      isVerified &&
+      questions.length > 0 &&
+      !runningRef.current &&
+      !terminatedRef.current &&
+      !isFinishedRef.current &&
+      !isFinished
+    ) {
       if (isWindowLocked && needsFullscreenPrompt) {
         // Wait until candidate accepts the locked fullscreen prompt before starting speech
         return;
       }
       runInterview(questions);
     }
-  }, [isVerified, questions, runInterview, isWindowLocked, needsFullscreenPrompt]);
+  }, [isVerified, questions, runInterview, isWindowLocked, needsFullscreenPrompt, isFinished]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // NO QUESTIONS / DIRECT ACCESS SCREEN
@@ -1691,14 +1732,14 @@ const InterviewRoom = () => {
           <div className="flex gap-3 justify-center">
             <Link
               to="/candidate/practice"
-              onClick={stopMediaHardware}
+              onClick={handleExitRoom}
               className="px-6 py-2.5 rounded-lg border border-border/50 text-foreground text-sm hover:bg-muted/30 transition-all cursor-pointer"
             >
               Practice Mode
             </Link>
             <Link
               to="/candidate/dashboard"
-              onClick={stopMediaHardware}
+              onClick={handleExitRoom}
               className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 transition-all cursor-pointer shadow-lg shadow-primary/20"
             >
               Return to Dashboard
@@ -1752,12 +1793,14 @@ const InterviewRoom = () => {
           <div className="flex gap-4 justify-center w-full">
             <Link
               to="/candidate/interviews"
+              onClick={handleExitRoom}
               className="px-6 py-3 rounded-lg border border-border/50 text-foreground text-sm hover:bg-muted/30 transition-all"
             >
               Company Interviews
             </Link>
             <Link
               to="/candidate/dashboard"
+              onClick={handleExitRoom}
               className="px-6 py-3 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 transition-all font-medium shadow-lg shadow-primary/25"
             >
               Dashboard
@@ -1896,18 +1939,21 @@ const InterviewRoom = () => {
         <div className="flex flex-wrap gap-3 justify-center">
           <Link
             to="/candidate/practice"
+            onClick={handleExitRoom}
             className="px-6 py-3 rounded-lg border border-border/50 text-foreground text-sm hover:bg-muted/30 transition-all"
           >
             Practice Again
           </Link>
           <Link
             to="/candidate/reports"
+            onClick={handleExitRoom}
             className="px-6 py-3 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 transition-all font-medium shadow-lg shadow-primary/25"
           >
             View in Reports Dashboard →
           </Link>
           <Link
             to="/candidate/dashboard"
+            onClick={handleExitRoom}
             className="px-6 py-3 rounded-lg border border-border/30 bg-muted/20 text-muted-foreground text-sm hover:text-foreground transition-all"
           >
             Dashboard
