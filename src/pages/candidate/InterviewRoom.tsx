@@ -163,13 +163,14 @@ async function transcribeAudioBlob(blob: Blob): Promise<string> {
 // ─────────────────────────────────────────────────────────────────────────────
 function listenForAnswer(
   onInterim: (text: string) => void,
-  onCountdown: (sec: number) => void,
+  onCountdown: (sec: number | null) => void,
   isTerminated: () => boolean,
   setActiveRecognition: (rec: any) => void,
   registerSubmit: (submitFn: () => void) => void,
   getCurrentManualText: () => string,
   mediaStream: MediaStream | null,
   isHalted?: () => boolean,
+  registerResetSilence?: (resetFn: () => void) => void,
 ): Promise<string> {
   return new Promise(async (resolve) => {
     if (isTerminated()) { resolve(""); return; }
@@ -180,12 +181,24 @@ function listenForAnswer(
     let interimText = "";
     let finished = false;
     let lastSpeech = Date.now();
-    let interval: ReturnType<typeof setInterval>;
+    let tickInterval: ReturnType<typeof setInterval>;
     let recognition: any = null;
     let mediaRecorder: MediaRecorder | null = null;
     let audioChunks: Blob[] = [];
 
-    // Setup MediaRecorder for universal STT (Brave, Chrome, Firefox, Safari)
+    const SILENCE_WAIT_MS = 5000;   // Wait 5 seconds of silence before timer starts
+    const COUNTDOWN_SEC   = 10;     // Timer runs for 10 seconds
+
+    function recordSpeechActivity() {
+      lastSpeech = Date.now();
+      onCountdown(null); // Instantly halt and hide the timer!
+    }
+
+    if (registerResetSilence) {
+      registerResetSilence(recordSpeechActivity);
+    }
+
+    // Setup MediaRecorder for complete audio capture & Whisper transcription
     if (mediaStream && typeof MediaRecorder !== "undefined") {
       try {
         const audioTracks = mediaStream.getAudioTracks();
@@ -218,7 +231,7 @@ function listenForAnswer(
     async function finalize() {
       if (finished) return;
       finished = true;
-      clearInterval(interval);
+      clearInterval(tickInterval);
       if (periodicWhisperTimer) clearInterval(periodicWhisperTimer);
       setActiveRecognition(null);
 
@@ -234,8 +247,8 @@ function listenForAnswer(
 
       let text = currentText();
 
-      // If text is still empty, transcribe the recorded audio via Groq Whisper
-      if (!text && mediaRecorder && audioChunks.length > 0) {
+      // Transcribe the complete audio recording with Groq Whisper for full response capture
+      if (mediaRecorder && audioChunks.length > 0) {
         try {
           if (mediaRecorder.state !== "inactive") {
             mediaRecorder.stop();
@@ -243,11 +256,15 @@ function listenForAnswer(
           await new Promise((r) => setTimeout(r, 200));
           const fullBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || "audio/webm" });
           if (fullBlob.size > 1000) {
-            onInterim("Transcribing your speech via Whisper AI…");
+            onInterim("Finalizing full transcript with Whisper AI…");
             const whisperResult = await transcribeAudioBlob(fullBlob);
             if (whisperResult) {
-              text = whisperResult;
-              onInterim(whisperResult);
+              const manual = getCurrentManualText().trim();
+              // If user didn't manually type, or Whisper has more words than browser STT:
+              if (!manual || whisperResult.length > text.length) {
+                text = whisperResult;
+                onInterim(whisperResult);
+              }
             }
           }
         } catch (whisperErr) {
@@ -263,7 +280,7 @@ function listenForAnswer(
     // Register submit callback for user's manual "Submit Answer" button
     registerSubmit(finalize);
 
-    // Periodic Whisper check if browser STT is shielded/blocked (common in Brave)
+    // Periodic Whisper check if browser STT is shielded/blocked (common in Brave/Privacy browsers)
     let periodicWhisperTimer: ReturnType<typeof setInterval>;
     if (mediaRecorder) {
       periodicWhisperTimer = setInterval(async () => {
@@ -279,12 +296,64 @@ function listenForAnswer(
             const partial = await transcribeAudioBlob(currentBlob);
             if (partial && !finished && !getCurrentManualText().trim()) {
               onInterim(partial);
-              lastSpeech = Date.now();
+              recordSpeechActivity();
             }
           } catch { /* ignore */ }
         }
       }, 3500);
     }
+
+    // Continuous Speech Recognition engine that auto-restarts seamlessly
+    function initSpeechRecognition() {
+      if (!SR || finished || isTerminated()) return;
+      try {
+        const rec = new SR();
+        rec.lang = "en-US";
+        rec.continuous = true;
+        rec.interimResults = true;
+        rec.maxAlternatives = 1;
+
+        rec.onresult = (event: any) => {
+          if (isTerminated() || finished) return;
+          interimText = "";
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const piece = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+              finalText += piece + " ";
+            } else {
+              interimText += piece;
+            }
+          }
+          recordSpeechActivity();
+          const combined = (finalText + " " + interimText).trim();
+          onInterim(combined);
+        };
+
+        rec.onerror = (event: any) => {
+          if (event.error !== "no-speech" && event.error !== "aborted") {
+            console.warn("Speech recognition notice:", event.error);
+          }
+        };
+
+        rec.onend = () => {
+          if (!finished && !isTerminated()) {
+            setTimeout(() => {
+              if (!finished && !isTerminated()) {
+                initSpeechRecognition();
+              }
+            }, 80);
+          }
+        };
+
+        rec.start();
+        recognition = rec;
+        setActiveRecognition(rec);
+      } catch (err) {
+        console.warn("Could not initialize SpeechRecognition:", err);
+      }
+    }
+
+    initSpeechRecognition();
 
     function tick() {
       if (isTerminated()) {
@@ -293,61 +362,33 @@ function listenForAnswer(
         return;
       }
       if (isHalted && isHalted()) {
-        lastSpeech = Date.now(); // freeze silence timeout while security halted
+        lastSpeech = Date.now(); // freeze silence timer while security halted
+        onCountdown(null);
         return;
       }
-      const remaining = SILENCE_TIMEOUT_MS - (Date.now() - lastSpeech);
-      onCountdown(Math.max(0, Math.ceil(remaining / 1000)));
-      if (remaining <= 0) {
-        if (periodicWhisperTimer) clearInterval(periodicWhisperTimer);
-        finalize();
-      }
-    }
 
-    if (SR) {
-      try {
-        recognition = new SR();
-        recognition.lang = "en-US";
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        recognition.maxAlternatives = 1;
+      const silenceMs = Date.now() - lastSpeech;
 
-        recognition.onresult = (event: any) => {
-          if (isTerminated() || finished) return;
-          interimText = "";
-          for (let i = event.resultIndex; i < event.results.length; i++) {
-            const piece = event.results[i][0].transcript;
-            if (event.results[i].isFinal) finalText += piece + " ";
-            else interimText += piece;
-          }
-          lastSpeech = Date.now();
-          const combined = (finalText + " " + interimText).trim();
-          onInterim(combined);
-        };
+      if (silenceMs < SILENCE_WAIT_MS) {
+        // User has been silent for LESS than 5 seconds (speaking or normal pause)
+        // Timer does NOT work here!
+        onCountdown(null);
+      } else {
+        // User has been silent for MORE than 5 seconds!
+        // Start 10-second countdown!
+        const countdownElapsed = silenceMs - SILENCE_WAIT_MS;
+        const remaining = Math.max(0, Math.ceil((COUNTDOWN_SEC * 1000 - countdownElapsed) / 1000));
+        onCountdown(remaining);
 
-        recognition.onerror = (event: any) => {
-          console.warn("Speech recognition notice:", event.error);
-        };
-
-        recognition.onend = () => {
-          if (!finished && !isTerminated()) {
-            setTimeout(() => {
-              if (!finished && !isTerminated() && recognition) {
-                try { recognition.start(); } catch { /* ignore */ }
-              }
-            }, 150);
-          }
-        };
-
-        recognition.start();
-        setActiveRecognition(recognition);
-      } catch (err) {
-        console.warn("Could not initialize SpeechRecognition:", err);
+        if (remaining <= 0) {
+          if (periodicWhisperTimer) clearInterval(periodicWhisperTimer);
+          finalize();
+        }
       }
     }
 
     lastSpeech = Date.now();
-    interval = setInterval(tick, 250);
+    tickInterval = setInterval(tick, 200);
   });
 }
 
@@ -392,7 +433,8 @@ const InterviewRoom = () => {
   const [currentTopic,     setCurrentTopic]     = useState("");
   const [currentCategory,  setCurrentCategory]  = useState("");
   const [liveTranscript,   setLiveTranscript]   = useState("");
-  const [silenceCountdown, setSilenceCountdown] = useState(15);
+  const [silenceCountdown, setSilenceCountdown] = useState<number | null>(null);
+  const resetSilenceTimerRef   = useRef<(() => void) | null>(null);
   const [followupCount,    setFollowupCount]    = useState(0);
   const [isFinished,       setIsFinished]       = useState(false);
   const [terminated,       setTerminated]       = useState(false);
@@ -545,7 +587,11 @@ const InterviewRoom = () => {
           sum += dataArray[i];
         }
         const avg = sum / dataArray.length;
-        setAudioLevel(Math.min(100, Math.round((avg / 128) * 100)));
+        const lvl = Math.min(100, Math.round((avg / 128) * 100));
+        setAudioLevel(lvl);
+        if (lvl > 14 && resetSilenceTimerRef.current) {
+          resetSilenceTimerRef.current();
+        }
         animFrameRef.current = requestAnimationFrame(updateLevel);
       };
       updateLevel();
@@ -1254,6 +1300,7 @@ const InterviewRoom = () => {
           () => manualAnswerRef.current,
           mediaStreamRef.current,
           () => isSecurityHaltedRef.current,
+          (resetFn) => { resetSilenceTimerRef.current = resetFn; },
         );
         if (terminatedRef.current) break;
 
@@ -2029,6 +2076,9 @@ const InterviewRoom = () => {
                 onChange={(e) => {
                   setLiveTranscript(e.target.value);
                   manualAnswerRef.current = e.target.value;
+                  if (resetSilenceTimerRef.current) {
+                    resetSilenceTimerRef.current();
+                  }
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
