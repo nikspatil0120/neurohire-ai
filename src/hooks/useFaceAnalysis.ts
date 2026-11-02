@@ -23,7 +23,7 @@ const MODELS_PATH = "/models";
 
 // Low-confidence frames below this threshold are treated as "no face" rather
 // than raising a false face_not_visible event (handles poor lighting / glasses).
-const MIN_DETECTION_SCORE = 0.4;
+const MIN_DETECTION_SCORE = 0.20;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -308,7 +308,7 @@ export function useFaceAnalysis(
 
       // ── Step 4: Detection rAF loop ────────────────────────────────────
       const detectorOptions = new faceapi.TinyFaceDetectorOptions({
-        inputSize: 224,  // lower than default 416 — faster, still reliable
+        inputSize: 320,  // 320x320 provides much higher accuracy for tilted and moving faces
         scoreThreshold: MIN_DETECTION_SCORE,
       });
 
@@ -366,9 +366,12 @@ export function useFaceAnalysis(
               .detectAllFaces(video, detectorOptions)
               .withFaceLandmarks();
 
-            const validDetections = detections.filter(
+            let validDetections = detections.filter(
               d => d.detection.score >= MIN_DETECTION_SCORE,
             );
+            if (validDetections.length === 0 && detections.length > 0) {
+              validDetections = detections;
+            }
 
             signal.faceCount = validDetections.length;
 

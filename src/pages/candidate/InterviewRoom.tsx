@@ -957,7 +957,7 @@ const InterviewRoom = () => {
         isMonitoringRef.current = true;
         // scoreThreshold 0.35 ensures tracking is preserved during motion and head tilts
         const detections = await faceapi
-          .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.35 }))
+          .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.18 }))
           .withFaceLandmarks()
           .withFaceDescriptors();
 
@@ -969,9 +969,9 @@ const InterviewRoom = () => {
           mismatchConsecutiveCountRef.current = 0;
           zeroFaceConsecutiveTicksRef.current += 1;
 
-          // Candidate must be COMPLETELY out of window for at least 3 consecutive ticks (~2.4s)
-          // Normal movement, blinking, or scratching face will NOT cause false halts!
-          if (zeroFaceConsecutiveTicksRef.current >= 3) {
+          // Candidate must be genuinely out of camera view for at least 7 consecutive ticks (~5.6s)
+          // Normal movement, blinking, looking at screen, or head turns will NEVER cause false halts!
+          if (zeroFaceConsecutiveTicksRef.current >= 7) {
             if (outOfFrameStartTimeRef.current === null) {
               outOfFrameStartTimeRef.current = Date.now();
               isSecurityHaltedRef.current = true;
@@ -1018,8 +1018,8 @@ const InterviewRoom = () => {
           mismatchConsecutiveCountRef.current = 0;
           multiFaceConsecutiveTicksRef.current += 1;
 
-          // Require 2 consecutive ticks to confirm a second person is truly in frame
-          if (multiFaceConsecutiveTicksRef.current >= 2) {
+          // Require 4 consecutive ticks (~3.2s) to confirm a secondary person is truly in frame
+          if (multiFaceConsecutiveTicksRef.current >= 4) {
             console.warn("[FaceProctor] Another face detected in frame:", detections.length);
             if (!isSecurityHaltedRef.current) {
               faceViolationsRef.current += 1;
@@ -1048,9 +1048,8 @@ const InterviewRoom = () => {
         // ── SCENARIO 3: EXACTLY 1 FACE DETECTED ─────────────────────────────
         const dist = faceapi.euclideanDistance(verifiedDescriptorRef.current, detections[0].descriptor);
 
-        // Threshold 0.65: Generous tolerance for natural movement, head tilt, spectacles, expressions
-        // Ensures candidate moving around in their chair NEVER triggers a false alarm!
-        if (dist <= 0.65) {
+        // Threshold 0.70: Robust tolerance for movement, head turns, spectacles, and room lighting
+        if (dist <= 0.70) {
           // Real verified candidate is confirmed!
           mismatchConsecutiveCountRef.current = 0;
 
@@ -1064,10 +1063,10 @@ const InterviewRoom = () => {
         }
 
         // If dist > 0.65, someone else is sitting in front of the camera
-        // Require 3 consecutive ticks (~2.4s) to confirm it is actually an unauthorized person
+        // Require 5 consecutive ticks (~4.0s) to confirm it is actually an unauthorized person
         mismatchConsecutiveCountRef.current += 1;
 
-        if (mismatchConsecutiveCountRef.current >= 3) {
+        if (mismatchConsecutiveCountRef.current >= 5) {
           console.warn("[FaceProctor] Confirmed unauthorized face mismatch! Distance:", dist.toFixed(3));
           if (!isSecurityHaltedRef.current) {
             faceViolationsRef.current += 1;

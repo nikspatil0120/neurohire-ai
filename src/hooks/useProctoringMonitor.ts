@@ -21,14 +21,14 @@ import { DETECTION_INTERVAL_MS } from "./useFaceAnalysis";
 // ─────────────────────────────────────────────────────────────────────────────
 
 // How many consecutive bad frames before raising an event (~1 s at 4.5 fps)
-const CONSEC_FRAMES_THRESHOLD = 4;
+const CONSEC_FRAMES_THRESHOLD = 18; // ~4.0s sustained absence before raising an event
 
 // Gaze / head-yaw — widen thresholds to tolerate glasses glare & peripheral glances
-const GAZE_THRESHOLD     = 0.55;   // |gazeOffsetX| > 0.55 → looking away
-const HEAD_YAW_THRESHOLD = 0.18;   // |headYawProxy| > 0.18 → turned away
+const GAZE_THRESHOLD     = 0.75;   // generous gaze threshold allowing natural glance across screen
+const HEAD_YAW_THRESHOLD = 0.40;   // allows natural head tilt and reading question without false alarms
 
 // Sustained looking-away before raising an event (ms)
-const LOOK_AWAY_SUSTAIN_MS = 3000;
+const LOOK_AWAY_SUSTAIN_MS = 8000; // 8s sustained looking away before flagging
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
