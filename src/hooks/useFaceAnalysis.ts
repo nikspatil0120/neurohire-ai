@@ -197,6 +197,7 @@ function extractLandmarkData(
 // ─────────────────────────────────────────────────────────────────────────────
 export function useFaceAnalysis(
   onFrame: (signal: FrameSignal) => void,
+  enabled: boolean = true,
 ): FaceAnalysisState {
   const videoRef  = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -231,6 +232,7 @@ export function useFaceAnalysis(
   }, []);
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
 
     const init = async () => {
@@ -280,7 +282,17 @@ export function useFaceAnalysis(
       streamRef.current = stream;
 
       // ── Step 3: Attach stream to video element ─────────────────────────
-      const video = videoRef.current;
+      let video = videoRef.current;
+      if (!video) {
+        for (let i = 0; i < 20; i++) {
+          await new Promise((r) => setTimeout(r, 100));
+          if (cancelled) return;
+          if (videoRef.current) {
+            video = videoRef.current;
+            break;
+          }
+        }
+      }
       if (!video) { stream.getTracks().forEach(t => t.stop()); return; }
       video.srcObject = stream;
       video.muted = true;
@@ -440,7 +452,7 @@ export function useFaceAnalysis(
       }
       stopEverything();
     };
-  }, []); // intentionally empty — runs once on mount, cleans up on unmount
+  }, [enabled, stopEverything]);
 
   return { ready, error, videoRef, canvasRef, lastFrame };
 }

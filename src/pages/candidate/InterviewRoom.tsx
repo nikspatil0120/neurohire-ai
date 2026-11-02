@@ -46,6 +46,7 @@ interface TranscriptItem {
   key_points: string[];
   exchanges: Exchange[];
   final_eval: any;
+  scored?: boolean;
 }
 
 type AiMode = "idle" | "speaking" | "listening" | "processing";
@@ -218,6 +219,7 @@ function listenForAnswer(
       if (finished) return;
       finished = true;
       clearInterval(interval);
+      if (periodicWhisperTimer) clearInterval(periodicWhisperTimer);
       setActiveRecognition(null);
 
       if (recognition) {
@@ -480,6 +482,7 @@ const InterviewRoom = () => {
       proctoringRef.current.pushFrame(frame);
       signalsRef.current.pushFrame(frame);
     }, []),
+    isVerified,
   );
 
   // Camera-denied modal: shown as a blocking overlay when camera is required
@@ -946,7 +949,7 @@ const InterviewRoom = () => {
 
     const monitorFaceTick = async () => {
       if (!isMounted || terminatedRef.current || !verifiedDescriptorRef.current) return;
-      const video = candidateVideoRef.current;
+      const video = faceAnalysis.videoRef.current;
       if (!video || video.readyState < 2 || video.paused) return;
       if (isMonitoringRef.current) return;
 
@@ -1945,12 +1948,7 @@ const InterviewRoom = () => {
         <div className="flex flex-col gap-4">
           <div className="aspect-video relative overflow-hidden rounded-xl border border-border/40">
             <CameraPreview
-              videoRef={(el) => {
-                if (faceAnalysis.videoRef) {
-                  (faceAnalysis.videoRef as any).current = el;
-                }
-                candidateVideoRef.current = el;
-              }}
+              videoRef={faceAnalysis.videoRef}
               ready={faceAnalysis.ready}
               error={faceAnalysis.error}
               proctoringStatus={proctoring.status}
